@@ -33,8 +33,10 @@ rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "artifact: $ZIP"
 
+HAVE_NOTARY=0
 if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
-    echo "submitting for notarization…"
+    HAVE_NOTARY=1
+    echo "submitting app for notarization…"
     xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
     xcrun stapler staple "$APP"
     # Re-zip so the download carries the stapled ticket.
@@ -45,4 +47,15 @@ else
     echo "NOTE: no notarytool profile '$NOTARY_PROFILE' — skipping notarization." >&2
 fi
 
-shasum -a 256 "$ZIP"
+# Build the drag-to-Applications installer from the (now stapled) app.
+DMG="$DIR/build/Internos-$VERSION.dmg"
+"$DIR/scripts/make-dmg.sh"
+if [[ "$HAVE_NOTARY" == "1" ]]; then
+    echo "submitting DMG for notarization…"
+    xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun stapler staple "$DMG"
+    echo "notarized and stapled: $DMG"
+fi
+
+echo "--- artifacts ---"
+shasum -a 256 "$ZIP" "$DMG"

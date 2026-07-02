@@ -16,8 +16,8 @@ Tools like Wispr Flow are excellent, but they send your voice to cloud servers. 
 
 ## Install
 
-1. Download `Internos-x.y.z.zip` from [Releases](../../releases), unzip, drag `Internos.app` to `/Applications`.
-2. Launch it. The setup window walks you through the three permissions it needs:
+1. Download `Internos-x.y.z.dmg` from [Releases](../../releases) and open it. Drag **Internos** onto the **Applications** folder in the installer window.
+2. Launch it from Applications. The setup window walks you through the three permissions it needs:
    - **Microphone** — capturing your voice while the hotkey is held
    - **Input Monitoring** — detecting the hotkey anywhere in macOS
    - **Accessibility** — inserting text at your cursor
@@ -57,8 +57,10 @@ Signs with whatever Apple Development identity is in your keychain (stable TCC g
 
 ```sh
 cd App
-./scripts/release.sh            # build → sign → zip → notarize → staple
+./scripts/release.sh            # build → sign → notarize → staple → build DMG → notarize DMG
 ```
+
+This produces both `Internos-<version>.zip` (raw app) and `Internos-<version>.dmg` (drag-to-Applications installer), each notarized and stapled.
 
 One-time setup for a notarized release: a **Developer ID Application** certificate in the keychain, and stored notary credentials:
 

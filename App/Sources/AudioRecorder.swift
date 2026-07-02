@@ -18,10 +18,26 @@ final class AudioRecorder {
     }
 
     /// Starts the tap and returns the stream of converted buffers for the analyzer.
-    func start(analyzerFormat: AVAudioFormat) throws -> AsyncStream<AnalyzerInput> {
+    /// `deviceUID` selects a specific input device; nil uses the system default.
+    func start(analyzerFormat: AVAudioFormat, deviceUID: String? = nil) throws -> AsyncStream<AnalyzerInput> {
         let engine = AVAudioEngine()
         self.engine = engine
         let input = engine.inputNode
+
+        if let deviceUID, var deviceID = AudioDevices.deviceID(forUID: deviceUID) {
+            // Route the engine's input to the chosen device (default is the system input).
+            let status = AudioUnitSetProperty(
+                input.audioUnit!,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &deviceID,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+            if status != noErr {
+                NSLog("Internos: input device selection failed (\(status)), using default")
+            }
+        }
         let hwFormat = input.inputFormat(forBus: 0)
         NSLog("Internos: mic format \(hwFormat.sampleRate) Hz \(hwFormat.channelCount) ch")
         guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {

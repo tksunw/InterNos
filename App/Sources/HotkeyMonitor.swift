@@ -1,20 +1,26 @@
-// Global push-to-talk hotkey via a listenOnly CGEventTap.
+// Global dictation hotkey via a listenOnly CGEventTap.
 // listenOnly needs Input Monitoring (not Accessibility) per Apple DTS — PRD §7.
-// Hardcoded for MVP: hold Right Option (kVK_RightOption = 61).
+// Watches a configurable modifier key (AppSettings.hotkey); down/up derived from
+// the keycode + generic modifier flag on flagsChanged events.
 
 import AppKit
 import CoreGraphics
 
 @MainActor
 final class HotkeyMonitor {
-    static let rightOptionKeyCode: Int64 = 61
-
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isHeld = false
+    private var watched: HotkeyChoice = AppSettings.shared.hotkey
+
+    /// Re-read the configured hotkey after a settings change.
+    func reloadSettings() {
+        watched = AppSettings.shared.hotkey
+        isHeld = false
+    }
 
     /// Returns false if the event tap could not be created (Input Monitoring not granted).
     func start() -> Bool {
@@ -36,8 +42,8 @@ final class HotkeyMonitor {
                     MainActor.assumeIsolated { monitor.reenable() }
                 } else if type == .flagsChanged {
                     let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-                    let optionDown = event.flags.contains(.maskAlternate)
-                    MainActor.assumeIsolated { monitor.handleFlagsChanged(keyCode: keyCode, optionDown: optionDown) }
+                    let flags = event.flags.rawValue
+                    MainActor.assumeIsolated { monitor.handleFlagsChanged(keyCode: keyCode, flags: flags) }
                 }
                 return Unmanaged.passUnretained(event)
             },
@@ -54,12 +60,13 @@ final class HotkeyMonitor {
         return true
     }
 
-    private func handleFlagsChanged(keyCode: Int64, optionDown: Bool) {
-        guard keyCode == Self.rightOptionKeyCode else { return }
-        if optionDown && !isHeld {
+    private func handleFlagsChanged(keyCode: Int64, flags: UInt64) {
+        guard keyCode == watched.rawValue else { return }
+        let down = flags & watched.flagMask != 0
+        if down && !isHeld {
             isHeld = true
             onKeyDown?()
-        } else if !optionDown && isHeld {
+        } else if !down && isHeld {
             isHeld = false
             onKeyUp?()
         }

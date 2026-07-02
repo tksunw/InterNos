@@ -13,38 +13,75 @@ final class DictationController {
     private let inserter = TextInserter()
     private let statusItem = StatusItemController()
     private let settingsWindow = SettingsWindowController()
+    private let onboarding = OnboardingWindowController()
 
     private var analyzerFormat: AVAudioFormat?
     private var utteranceTask: Task<String, Error>?
     private var isPaused = false
+    private var pipelineReady = false
+    private var tapFailed = false
 
     func start() async {
         statusItem.onTogglePause = { [weak self] in self?.togglePause() }
         statusItem.onOpenSettings = { [weak self] in self?.openSettings() }
+        statusItem.onOpenSetup = { [weak self] in self?.showOnboarding() }
 
-        // Permission + model preflight. MVP: log to console; real onboarding is milestone 4.
-        let micOK = await AudioRecorder.requestMicPermission()
-        if !micOK { NSLog("Internos: microphone permission denied") }
+        let modelInstalled = await engine.modelStatus() == .installed
+        if PermissionsService.allGranted && modelInstalled {
+            await initializePipeline()
+        } else {
+            // First run (or a permission was revoked): walk the user through setup.
+            statusItem.setState(.disabled)
+            showOnboarding()
+        }
+    }
 
-        _ = TextInserter.checkAccessibility(promptIfNeeded: true)
-
+    private func initializePipeline() async {
+        guard !pipelineReady else { return }
         do {
             try await engine.ensureModel()
             analyzerFormat = try await engine.analyzerFormat()
         } catch {
             NSLog("Internos: model setup failed: \(error)")
             statusItem.setState(.error)
+            return
         }
 
         hotkey.onKeyDown = { [weak self] in self?.hotkeyDown() }
         hotkey.onKeyUp = { [weak self] in self?.hotkeyUp() }
         if !hotkey.start() {
-            NSLog("Internos: event tap creation failed — grant Input Monitoring and relaunch")
+            // Input Monitoring granted after launch doesn't reach an existing process;
+            // the onboarding window offers a restart in this state.
+            NSLog("Internos: event tap creation failed — restart needed after Input Monitoring grant")
+            tapFailed = true
             statusItem.setState(.error)
-            playSound("Basso")
+            showOnboarding()
         } else {
             NSLog("Internos: ready")
+            pipelineReady = true
+            statusItem.setState(.idle)
             statusItem.refreshHotkeyHint()
+        }
+    }
+
+    private func showOnboarding() {
+        onboarding.show(needsRestart: tapFailed) { [weak self] in
+            guard let self else { return }
+            if self.tapFailed {
+                Self.relaunch()
+            } else {
+                Task { await self.initializePipeline() }
+            }
+        }
+    }
+
+    /// Relaunches the app (needed when Input Monitoring was granted after the tap failed).
+    private static func relaunch() {
+        let url = Bundle.main.bundleURL
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 

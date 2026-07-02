@@ -29,6 +29,7 @@ final class StatusItemController: NSObject {
 
     var onTogglePause: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onOpenSetup: (() -> Void)?
     var isPaused = false {
         didSet {
             pauseItem.title = isPaused ? "Resume Dictation" : "Pause Dictation"
@@ -52,6 +53,9 @@ final class StatusItemController: NSObject {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+        let setupItem = NSMenuItem(title: "Setup & Permissions…", action: #selector(openSetup), keyEquivalent: "")
+        setupItem.target = self
+        menu.addItem(setupItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Internos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -89,4 +93,5 @@ final class StatusItemController: NSObject {
 
     @objc private func togglePause() { onTogglePause?() }
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openSetup() { onOpenSetup?() }
 }

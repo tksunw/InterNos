@@ -13,6 +13,10 @@ final class TranscriptionEngine: Sendable {
         SpeechTranscriber(locale: locale, preset: .transcription)
     }
 
+    func modelStatus() async -> AssetInventory.Status {
+        await AssetInventory.status(forModules: [makeTranscriber()])
+    }
+
     /// Ensure the en-US model asset is installed (downloads on first run).
     func ensureModel() async throws {
         let transcriber = makeTranscriber()

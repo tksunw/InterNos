@@ -18,6 +18,15 @@ cp "$BIN" "$APP/Contents/MacOS/Internos"
 cp "$DIR/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# Debug builds get a distinct bundle ID + name so they never collide with an
+# installed release app's TCC (mic/Input Monitoring/Accessibility) or LaunchServices
+# identity. Release builds keep the real net.timkennedy.internos.
+if [[ "$CONFIG" == "debug" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier net.timkennedy.internos.debug" "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName Internos Dev" "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Internos Dev" "$APP/Contents/Info.plist"
+fi
+
 # Prefer a real identity (stable TCC grants across rebuilds); fall back to ad-hoc.
 # The entitlements file is required: hardened runtime blocks mic access without it.
 ENTITLEMENTS="$DIR/Resources/Internos.entitlements"

@@ -149,7 +149,7 @@ Since this isn't being built against a team OKR, "success" is probably better fr
 
 | Risk / Question | Notes |
 |---|---|
-| Custom vocabulary support **unconfirmed** | The v0.1 assumption that `SpeechAnalyzer` exposes no keyword-boosting (unlike `SFSpeechRecognizer.contextualStrings`) **failed independent verification** and is not settled. **Action:** confirm against the live macOS 26 SDK during the spike. If confirmed absent, jargon accuracy (Palo Alto, Azure resource names, etc.) may lag cloud alternatives, and a user-dictionary feature would have to be a Foundation Models find-and-replace pass rather than recognition-layer boosting. |
+| Custom vocabulary: API present but **inert** *(resolved by spike, 2026-07-02)* | `AnalysisContext.contextualStrings` **does exist** in the macOS 26 SDK (the v0.1 "no such API" claim was wrong), but empirically has **no effect** on `SpeechTranscriber` output (tested: "Internos" still misrecognized with the term supplied). A full custom-LM path exists via `DictationTranscriber.ContentHint.customizedLanguage`, but that module finalized poorly and was less accurate in testing. **Decision:** treat recognition-layer vocabulary as unavailable for v1; a user dictionary would be a Foundation Models find-and-replace pass. See `Spike/FINDINGS.md`. |
 | **Secure Input blocks text insertion** *(new)* | macOS Secure Input blocks synthesized keystrokes **including the ⌘V used by clipboard-swap** — so the "safe" MVP path is not immune. It can also get stuck enabled by a backgrounded app. Must detect (`IsSecureEventInputEnabled()`) and fail loud (F4a). |
 | Global hotkey conflicts | Need to test against common app shortcuts and system-reserved combos before picking a default. A `listenOnly` `CGEventTap` observes but does not consume the key, so the hotkey still reaches the frontmost app — pick a combo that's inert there. |
 | Permission friction (now up to **three**) | Microphone + Input Monitoring + Accessibility, each a separate TCC grant. This class of app is the #1 support-ticket generator for exactly this reason — budget real design time for a staged, three-step onboarding. |
@@ -196,6 +196,7 @@ This revision (v0.1 → v0.2) folds in a multi-source, adversarially fact-checke
 - **Foundation Models 4096-token context cap** noted for the cleanup pass. [Apple TN3193; InfoQ 2026-03]
 - **Competitor features surfaced:** Wispr's Smart Formatting (filler removal), Backtrack (self-correction), Command Mode, and auto-learning dictionary — added to stretch/non-goals.
 
-**Open / unverified (verify in the spike):**
-- Whether the new Speech API exposes **any** custom-vocabulary / phrase-boosting mechanism. The v0.1 "it does not" claim failed independent verification (weak evidence of absence); do not treat as settled.
-- Measured latency/accuracy on target Apple Silicon vs. the <1s / sub-15s-utterance goal.
+**Resolved by the spike (2026-07-02, see `Spike/FINDINGS.md`):**
+- Custom vocabulary: `AnalysisContext.contextualStrings` exists in the SDK but is empirically inert for `SpeechTranscriber`; `DictationTranscriber` offers a custom-LM content hint but finalizes poorly and is less accurate. v1 uses `SpeechTranscriber` with no recognition-layer vocabulary.
+- Latency: streaming release→final measured at **0.22 s** on target hardware (file mode 0.37–0.44 s for a ~7 s utterance) — comfortably under the <1 s goal.
+- Asset flow and the 16 kHz-vs-48 kHz format conversion both validated end-to-end.

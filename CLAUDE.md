@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This repository is in the planning stage. It contains only `Internos-PRD.md`, the product requirements document. There is no source code, build system, or git history yet. When code is added, update this file with actual build/test/run commands.
+Planning + spike stage. `Internos-PRD.md` is the requirements doc. `Spike/` is a throwaway SwiftPM CLI that validated the transcription pipeline end-to-end (see `Spike/FINDINGS.md` for measured results); build it with `cd Spike && swift build`, run with `swift run internos-spike [info|download|file|stream|live]`. The main app does not exist yet.
 
 ## What this project is
 
@@ -33,7 +33,7 @@ Other constraints and decisions:
 
 ## Non-goals (v1)
 
-No cloud anything (sync, accounts, fallback transcription), no meeting/long-form transcription, no multi-language (en-US only), no Windows/Linux/iOS. Custom vocabulary is out for v1, but whether the new Speech framework exposes phrase-boosting at all is **unverified** (the "it doesn't" assumption failed fact-checking — confirm against the live SDK in the spike, don't treat as settled).
+No cloud anything (sync, accounts, fallback transcription), no meeting/long-form transcription, no multi-language (en-US only), no Windows/Linux/iOS. Custom vocabulary is out for v1: the spike confirmed `AnalysisContext.contextualStrings` exists in the SDK but is empirically inert for `SpeechTranscriber` (see `Spike/FINDINGS.md`); a user dictionary would have to be a post-processing pass. Use `SpeechTranscriber(.transcription)`, not `DictationTranscriber` (volatile-only finalization, worse accuracy in testing).
 
 ## Milestone order
 

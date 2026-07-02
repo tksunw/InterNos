@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Planning + spike stage. `Internos-PRD.md` is the requirements doc. `Spike/` is a throwaway SwiftPM CLI that validated the transcription pipeline end-to-end (see `Spike/FINDINGS.md` for measured results); build it with `cd Spike && swift build`, run with `swift run internos-spike [info|download|file|stream|live]`. The main app does not exist yet.
+MVP stage. `Internos-PRD.md` is the requirements doc.
+
+- `App/` — the real app (SwiftPM executable, assembled into a bundle). Build: `cd App && ./scripts/make-app.sh release` → `App/build/Internos.app`. Run it with `open build/Internos.app`, or run the inner binary directly to see NSLog output on stderr. MVP core loop works end-to-end: hold Right Option (hardcoded) → speak → release → text inserted at cursor. Signs with the local Apple Development identity so TCC grants persist across rebuilds.
+- `Spike/` — throwaway CLI that validated the pipeline (see `Spike/FINDINGS.md` for measured results). `cd Spike && swift run internos-spike [info|download|file|stream|live]`.
+
+Implementation notes proven in testing: use a fresh `AVAudioEngine` per utterance (a reused engine reports a stale input format after stop/removeTap cycles → silent empty transcripts); the analyzer session is created per utterance with `modelRetention: .processLifetime` to keep the model warm; release→insert latency measured at ~50–70 ms.
 
 ## What this project is
 

@@ -14,6 +14,7 @@ final class DictationController {
     private let statusItem = StatusItemController()
     private let settingsWindow = SettingsWindowController()
     private let onboarding = OnboardingWindowController()
+    private let indicator = RecordingIndicator()
 
     private var analyzerFormat: AVAudioFormat?
     private var utteranceTask: Task<String, Error>?
@@ -110,6 +111,7 @@ final class DictationController {
             recorder.stop()
             utteranceTask?.cancel()
             utteranceTask = nil
+            indicator.hide()
         }
     }
 
@@ -135,10 +137,12 @@ final class DictationController {
                 try await engine.transcribe(input: stream, format: format)
             }
             statusItem.setState(.recording)
+            indicator.show(.recording)
             playSound("Pop")
         } catch {
             NSLog("Internos: audio start failed: \(error)")
             statusItem.setState(.error)
+            indicator.hide()
             playSound("Basso")
         }
     }
@@ -149,10 +153,14 @@ final class DictationController {
         recorder.stop() // finishes the stream → analyzer sees end of input
         NSLog("Internos: recording stopped, finalizing")
         statusItem.setState(.transcribing)
+        indicator.show(.transcribing)
         Task {
             do {
                 let transcript = try await task.value
-                NSLog("Internos: transcript (\(transcript.count) chars): \"\(transcript)\"")
+                // Log length only — never the content. Writing transcripts to the unified
+                // log (persistent, readable) would contradict the app's whole premise.
+                NSLog("Internos: transcript finalized (\(transcript.count) chars)")
+                indicator.hide()
                 guard !transcript.isEmpty else {
                     statusItem.setState(.error)
                     playSound("Basso")
@@ -170,10 +178,12 @@ final class DictationController {
                 }
                 NSLog("Internos: Secure Input active — transcript left on clipboard, not inserted")
                 statusItem.setState(.error)
+                indicator.hide()
                 playSound("Basso")
             } catch {
                 NSLog("Internos: utterance failed: \(error)")
                 statusItem.setState(.error)
+                indicator.hide()
                 playSound("Basso")
             }
         }

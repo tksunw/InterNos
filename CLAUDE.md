@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-MVP stage. `Internos-PRD.md` is the requirements doc.
+v1.0.0 released (GitHub Releases, development-signed; notarization pending Developer ID credentials — `App/scripts/release.sh` handles it once `notarytool store-credentials internos` has been run and a Developer ID Application cert exists). `Internos-PRD.md` is the requirements doc.
 
 - `App/` — the real app (SwiftPM executable, assembled into a bundle). Build: `cd App && ./scripts/make-app.sh release` → `App/build/Internos.app`. Run it with `open build/Internos.app`, or run the inner binary directly to see NSLog output on stderr. MVP core loop works end-to-end: hold Right Option (hardcoded) → speak → release → text inserted at cursor. Signs with the local Apple Development identity so TCC grants persist across rebuilds.
 - `Spike/` — throwaway CLI that validated the pipeline (see `Spike/FINDINGS.md` for measured results). `cd Spike && swift run internos-spike [info|download|file|stream|live]`.

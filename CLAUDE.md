@@ -16,29 +16,29 @@ Note the naming history: the directory is named "Privox" but that name was rejec
 
 Three-stage pipeline, mostly wiring around Apple frameworks:
 
-1. **Audio capture** — `AVAudioEngine` input tap, converted via `AnalyzerInputConverter` to the format `SpeechAnalyzer` expects.
-2. **Transcription** — `SpeechAnalyzer` + `SpeechTranscriber` (Speech framework, **macOS 26+ hard requirement**; these APIs don't exist earlier). The hotkey-hold-and-release flow may only need finalized results, not volatile ones — simpler. Model assets are ensured on first run via `AssetInventory.assetInstallationRequest`.
-3. **Text insertion** — clipboard swap (save clipboard, set transcript, simulate ⌘V, restore) is the MVP approach for cross-app reliability; CGEvent synthetic keystrokes are the fallback option.
+1. **Audio capture** — `AVAudioEngine` input tap, converted to the format `SpeechAnalyzer` expects, yielded as `AnalyzerInput`. The buffer format must match `SpeechTranscriber.bestAvailableAudioFormat` or transcription **silently returns nothing** (no error) — validate this first in the spike.
+2. **Transcription** — `SpeechAnalyzer` + `SpeechTranscriber` (Speech framework, **macOS 26+ hard requirement**; these APIs don't exist earlier). The hotkey-hold-and-release flow may only need finalized results, not volatile ones — simpler. Model assets are ensured on first run via `AssetInventory.assetInstallationRequest`; the model is stored system-wide (no app-size cost) and shared across apps. `en-US` only for v1.
+3. **Text insertion** — clipboard swap (save clipboard, set transcript, simulate ⌘V, restore) is the MVP approach for cross-app reliability; CGEvent synthetic keystrokes are the fallback option. **Both end in a synthesized keystroke, so both are blocked by macOS Secure Input** in password/sensitive fields (clipboard swap is not immune — its ⌘V is synthesized). Preflight with `IsSecureEventInputEnabled()` and fail visibly rather than dropping the transcript.
 
 Other constraints and decisions:
 
 - Swift + SwiftUI, with AppKit interop for global event monitoring and `NSStatusItem`. Menu-bar-only app (`LSUIElement`, no dock icon).
-- Global hotkey via `NSEvent.addGlobalMonitorForEvents` or a Carbon hotkey API wrapper — SwiftUI has no first-class global hotkey API.
-- Two permissions required: Microphone and Accessibility. Silently-denied Accessibility permission is the expected #1 failure mode; onboarding for both needs deliberate design.
+- Global hotkey via a `listenOnly` `CGEventTap` (preferred — needs only Input Monitoring) rather than `NSEvent.addGlobalMonitorForEvents` (needs Accessibility); a Carbon `RegisterEventHotKey` wrapper is an alternative. SwiftUI has no first-class global hotkey API. A `listenOnly` tap observes but does not consume the key.
+- **Three** permissions may be required, each a distinct TCC grant in its own System Settings pane: **Microphone** (capture), **Input Monitoring** (the `CGEventTap` hotkey; `CGPreflight`/`CGRequestListenEventAccess`), and **Accessibility** (synthetic keystroke/paste insertion; `AXIsProcessTrustedWithOptions`). Silently-denied permissions are the #1 failure mode; all three need deliberate onboarding.
 - Persistence is minimal: settings only (`UserDefaults` or small SwiftData store).
-- Apple Silicon only; no Intel support planned.
-- Failure behavior: never insert partial/garbage text. Fail visibly (brief error indicator), never silently.
+- Apple Silicon only; no Intel support planned. `en-US` only for v1.
+- Failure behavior: never insert partial/garbage text. Fail visibly (brief error indicator), never silently — explicitly includes the Secure Input case.
 - Latency target: under ~1 second from hotkey release to inserted text for utterances under 15 seconds.
+- Optional stretch: on-device text cleanup (filler removal, self-correction) via the **Foundation Models** framework (macOS 26, on-device ~3B LLM, fixed 4096-token context window). Not on the core transcription path; requires an Apple-Intelligence-eligible device.
 
 ## Non-goals (v1)
 
-No cloud anything (sync, accounts, fallback transcription), no meeting/long-form transcription, no custom vocabulary (Apple's new framework doesn't expose it yet), no Windows/Linux/iOS.
+No cloud anything (sync, accounts, fallback transcription), no meeting/long-form transcription, no multi-language (en-US only), no Windows/Linux/iOS. Custom vocabulary is out for v1, but whether the new Speech framework exposes phrase-boosting at all is **unverified** (the "it doesn't" assumption failed fact-checking — confirm against the live SDK in the spike, don't treat as settled).
 
 ## Milestone order
 
-The PRD sequences work as: (1) command-line spike validating `SpeechAnalyzer`/`SpeechTranscriber` end-to-end before any UI, (2) MVP core loop with hardcoded hotkey and clipboard insertion, (3) menu bar shell and settings, (4) permission onboarding and model download UI, (5) polish and distribution decision. Direct-download-with-notarization is the likely v1 distribution path; App Store sandbox tolerance for global hotkeys + synthetic keystrokes is an open question.
+The PRD sequences work as: (1) command-line spike validating `SpeechAnalyzer`/`SpeechTranscriber` end-to-end before any UI (confirm en-US asset flow, `bestAvailableAudioFormat` match, and whether any custom-vocabulary API exists), (2) MVP core loop with hardcoded hotkey and clipboard insertion plus Secure-Input preflight, (3) menu bar shell and settings, (4) permission onboarding (Mic + Input Monitoring + Accessibility) and model download UI, (5) polish, sign + notarize. **Distribution is decided: direct download** (GitHub Releases, possibly TestFlight for beta), signed + notarized — not the Mac App Store. Note: the hotkey alone could ship sandboxed; it's the insertion step (Accessibility) that the App Store sandbox restricts.
 
 ## Open decisions
 
 - Push-to-talk vs. toggle as default interaction (or both from day one).
-- Distribution channel (direct vs. App Store) — decide early, it constrains the Accessibility/hotkey approach.

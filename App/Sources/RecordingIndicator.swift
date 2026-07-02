@@ -1,6 +1,7 @@
-// Floating recording indicator (PRD §5 step 3): a small pill near the bottom of the
-// active screen showing record/transcribe state. Uses a non-activating panel that never
-// becomes key — critical, because stealing focus would send the paste to the wrong app.
+// Floating recording indicator (PRD §5 step 3): a premium real-time "voice print" — a
+// scrolling waveform of rounded bars driven by actual mic amplitude — in a frosted rounded
+// box near the bottom of the active screen. Uses a non-activating panel that never becomes
+// key, so it never steals focus (stealing focus would send the paste to the wrong app).
 
 import AppKit
 import SwiftUI
@@ -11,46 +12,111 @@ enum IndicatorState: Equatable {
     case transcribing
 }
 
-struct RecordingIndicatorView: View {
-    let state: IndicatorState
-    @State private var pulse = false
+/// Rolling ring buffer of recent input levels, newest at the end. Drives the waveform.
+@MainActor
+final class LevelMeter: ObservableObject {
+    @Published private(set) var levels: [CGFloat]
+    private let capacity: Int
+    private var smoothed: CGFloat = 0
+
+    init(capacity: Int = 48) {
+        self.capacity = capacity
+        levels = Array(repeating: 0, count: capacity)
+    }
+
+    func push(_ level: CGFloat) {
+        // Light attack/decay smoothing so the bars breathe instead of jitter.
+        smoothed = level > smoothed ? (smoothed * 0.4 + level * 0.6)
+                                    : (smoothed * 0.7 + level * 0.3)
+        var next = levels
+        next.removeFirst()
+        next.append(smoothed)
+        levels = next
+    }
+
+    func reset() {
+        smoothed = 0
+        levels = Array(repeating: 0, count: capacity)
+    }
+}
+
+private let brandGradient = Gradient(colors: [
+    Color(red: 0.55, green: 0.45, blue: 0.98),
+    Color(red: 0.72, green: 0.42, blue: 0.95),
+    Color(red: 0.55, green: 0.45, blue: 0.98),
+])
+
+struct VoicePrintView: View {
+    @ObservedObject var meter: LevelMeter
 
     var body: some View {
-        HStack(spacing: 9) {
+        Canvas { ctx, size in
+            let count = meter.levels.count
+            let gap: CGFloat = 2.5
+            let barW = max(2, (size.width - gap * CGFloat(count - 1)) / CGFloat(count))
+            let midY = size.height / 2
+            var bars = Path()
+            for (i, level) in meter.levels.enumerated() {
+                // Ease the amplitude and keep a small floor so silence reads as a dotted line.
+                let h = max(barW, pow(level, 0.85) * size.height)
+                let x = CGFloat(i) * (barW + gap)
+                bars.addPath(Path(roundedRect: CGRect(x: x, y: midY - h / 2, width: barW, height: h),
+                                  cornerRadius: barW / 2))
+            }
+            ctx.fill(bars, with: .linearGradient(brandGradient,
+                                                 startPoint: .zero,
+                                                 endPoint: CGPoint(x: size.width, y: 0)))
+        }
+        .drawingGroup() // render on the GPU for smooth ~47 Hz updates
+    }
+}
+
+struct RecordingIndicatorView: View {
+    let state: IndicatorState
+    @ObservedObject var meter: LevelMeter
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .fill(.black.opacity(0.78))
+                .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
+
             switch state {
             case .recording:
-                Circle()
-                    .fill(.red)
-                    .frame(width: 9, height: 9)
-                    .opacity(pulse ? 0.35 : 1)
-                    .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
-                    .onAppear { pulse = true }
-                    .onDisappear { pulse = false }
-                Text("Listening…").font(.system(size: 13, weight: .medium))
+                VoicePrintView(meter: meter)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
             case .transcribing:
-                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 9, height: 9)
-                Text("Transcribing…").font(.system(size: 13, weight: .medium))
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small).scaleEffect(0.75).frame(width: 10, height: 10)
+                    Text("Transcribing…")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                }
             case .hidden:
                 EmptyView()
             }
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Capsule().fill(Color.black.opacity(0.82)))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
-        .fixedSize()
+        .frame(width: 216, height: 54)
     }
 }
 
 @MainActor
 final class RecordingIndicator {
     private var panel: NSPanel?
-    private let hosting = NSHostingController(rootView: RecordingIndicatorView(state: .hidden))
+    private let meter = LevelMeter()
+    private lazy var hosting = NSHostingController(
+        rootView: RecordingIndicatorView(state: .hidden, meter: meter))
+
+    /// Feed a live input level (0...1) from the capture tap.
+    func pushLevel(_ level: CGFloat) { meter.push(level) }
 
     func show(_ state: IndicatorState) {
         guard state != .hidden else { hide(); return }
-        hosting.rootView = RecordingIndicatorView(state: state)
+        if state == .recording { meter.reset() }
+        hosting.rootView = RecordingIndicatorView(state: state, meter: meter)
 
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -60,11 +126,12 @@ final class RecordingIndicator {
 
     func hide() {
         panel?.orderOut(nil)
+        meter.reset()
     }
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: .zero,
+            contentRect: NSRect(x: 0, y: 0, width: 216, height: 54),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -73,7 +140,7 @@ final class RecordingIndicator {
         panel.level = .statusBar
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false // the SwiftUI card draws its own shadow
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -82,8 +149,7 @@ final class RecordingIndicator {
     }
 
     private func position(_ panel: NSPanel) {
-        panel.layoutIfNeeded()
-        let size = hosting.view.fittingSize
+        let size = NSSize(width: 216, height: 54)
         panel.setContentSize(size)
         // Bottom-center of the screen under the cursor (or main screen), above the Dock.
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main

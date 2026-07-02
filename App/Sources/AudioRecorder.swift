@@ -11,6 +11,9 @@ final class AudioRecorder {
     private var engine: AVAudioEngine?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
 
+    /// Live input level in 0...1 (perceptual), delivered on the main thread for the voice-print UI.
+    var onLevel: (@Sendable (CGFloat) -> Void)?
+
     var isRunning: Bool { engine?.isRunning ?? false }
 
     static func requestMicPermission() async -> Bool {
@@ -50,8 +53,22 @@ final class AudioRecorder {
         let (stream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
         self.continuation = continuation
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
+        // 1024-frame buffers (~21 ms at 48 kHz) give a smooth ~47 Hz level feed for the visualizer;
+        // the analyzer is fed the converted buffers regardless of size.
+        let levelCallback = onLevel
+        input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) { [weak self] buffer, _ in
             guard let self, let continuation = self.continuation else { return }
+
+            if let levelCallback, let ch = buffer.floatChannelData?[0] {
+                let frames = Int(buffer.frameLength)
+                var sumSquares: Float = 0
+                for i in 0..<frames { sumSquares += ch[i] * ch[i] }
+                let rms = frames > 0 ? sqrt(sumSquares / Float(frames)) : 0
+                let db = 20 * log10(max(rms, 1e-7))
+                // Map a useful speech window (-55 dB quiet … -12 dB loud) into 0...1.
+                let level = CGFloat(min(1, max(0, (db + 55) / 43)))
+                DispatchQueue.main.async { levelCallback(level) }
+            }
             let ratio = analyzerFormat.sampleRate / hwFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
             guard let out = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: capacity) else { return }

@@ -26,6 +26,10 @@ final class DictationController {
         statusItem.onTogglePause = { [weak self] in self?.togglePause() }
         statusItem.onOpenSettings = { [weak self] in self?.openSettings() }
         statusItem.onOpenSetup = { [weak self] in self?.showOnboarding() }
+        // Delivered on the main thread by AudioRecorder; assumeIsolated satisfies Swift 6.
+        recorder.onLevel = { [weak self] level in
+            MainActor.assumeIsolated { self?.indicator.pushLevel(level) }
+        }
 
         let modelInstalled = await engine.modelStatus() == .installed
         if PermissionsService.allGranted && modelInstalled {

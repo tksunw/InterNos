@@ -23,7 +23,8 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-internos}"
 DEV_ID="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Developer ID Application/{print $2; exit}')"
 if [[ -n "$DEV_ID" ]]; then
     echo "signing with: $DEV_ID"
-    codesign --force --options runtime --timestamp --sign "$DEV_ID" "$APP"
+    codesign --force --options runtime --timestamp \
+        --entitlements "$DIR/Resources/Internos.entitlements" --sign "$DEV_ID" "$APP"
 else
     echo "NOTE: no Developer ID Application certificate found — artifact is development-signed." >&2
 fi

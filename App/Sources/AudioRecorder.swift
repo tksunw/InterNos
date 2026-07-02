@@ -50,15 +50,8 @@ final class AudioRecorder {
         let (stream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
         self.continuation = continuation
 
-        nonisolated(unsafe) var peak: Float = 0
-        nonisolated(unsafe) var bufferCount = 0
         input.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
             guard let self, let continuation = self.continuation else { return }
-            if let ch = buffer.floatChannelData?[0] {
-                for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(ch[i])) }
-                bufferCount += 1
-                if bufferCount % 20 == 0 { NSLog("Internos: capture peak so far: %.4f", peak) }
-            }
             let ratio = analyzerFormat.sampleRate / hwFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
             guard let out = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: capacity) else { return }

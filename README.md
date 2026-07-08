@@ -62,6 +62,8 @@ If a password field has focus (macOS Secure Input), Internos refuses to inject a
 - No accounts, no telemetry, no transcript storage; settings are the only persisted state
 - The speech model is downloaded once by macOS itself (Apple's asset CDN) and shared system-wide
 
+Full policy: [PRIVACY.md](PRIVACY.md).
+
 ## Building from source
 
 ```sh

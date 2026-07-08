@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Maintain `CHANGELOG.md` (Keep a Changelog format): every user-visible change lands under `[Unreleased]`; on release, retitle that section to the version + date and add the compare link.
 
-v1.0.0 released (GitHub Releases, development-signed; notarization pending Developer ID credentials — `App/scripts/release.sh` handles it once `notarytool store-credentials internos` has been run and a Developer ID Application cert exists). `Internos-PRD.md` is the requirements doc.
+v1.0.8 published (GitHub Releases, notarized + stapled DMG and zip; the repo is public, MIT-licensed, with `PRIVACY.md` and `CHANGELOG.md`). `App/scripts/release.sh` runs the full pipeline: build → Developer ID sign → notarize (`notarytool` keychain profile `internos`) → staple → DMG (via `dmgbuild`, `pipx install dmgbuild`) → notarize DMG. `Internos-PRD.md` is the requirements doc. Post-v1 features so far: spoken hashtag/emoji/symbol substitution (`TranscriptPostProcessor.swift`), Check for Updates (manual + opt-in launch check), About panel, branded menu bar icon (`waveform.and.mic`).
 
 - `App/` — the real app (SwiftPM executable, assembled into a bundle). Build: `cd App && ./scripts/make-app.sh release` → `App/build/Internos.app`. Run it with `open build/Internos.app`, or run the inner binary directly to see NSLog output on stderr. Hold Right Option (default) → speak → release → text inserted at cursor. Signs with the local Apple Development identity so TCC grants persist across rebuilds.
   - **For dev iteration, build with `make-app.sh debug`.** Debug builds get a distinct bundle ID (`net.timkennedy.internos.debug`, name "Internos Dev") AND a distinct output path (`App/build/debug/Internos Dev.app`) so they have their own TCC + LaunchServices identity and can NEVER collide with an installed release app. The separate path matters: TCC ties grants to bundle ID + path + signature, and one path alternating between two identities makes permission toggles not stick (fix: `tccutil reset All net.timkennedy.internos.debug`, rebuild, re-grant). Running a same-ID dev copy alongside `/Applications/Internos.app` causes Input Monitoring/Accessibility grants to attach to the wrong binary and appear granted-but-not-registering. Only `make-app.sh release` / `release.sh` use the real `net.timkennedy.internos`.
@@ -16,7 +16,7 @@ Implementation notes proven in testing: use a fresh `AVAudioEngine` per utteranc
 
 ## What this project is
 
-**Internos** is a planned macOS menu bar utility for fully on-device voice-to-text: hold a global hotkey, speak, release, and the transcription is inserted at the cursor in the frontmost app. The core differentiator is privacy — zero network calls in the transcription path. All speech processing uses Apple's native Speech framework, never a cloud API or bundled third-party model.
+**Internos** is a macOS menu bar utility for fully on-device voice-to-text: hold a global hotkey, speak, release, and the transcription is inserted at the cursor in the frontmost app. The core differentiator is privacy — zero network calls in the transcription path. All speech processing uses Apple's native Speech framework, never a cloud API or bundled third-party model.
 
 Note the naming history: the directory is named "Privox" but that name was rejected (too close to Privoxy). The product name is **Internos**. Use Internos in all new code, bundle identifiers, and documentation.
 

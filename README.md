@@ -38,7 +38,11 @@ Punctuation and capitalization are automatic. On top of that, Internos rewrites 
 | "dollar sign" | `$` |
 | "percent sign" | `%` |
 
-Emoji require the spoken word **emoji** before the name, so saying "she sent me a smiley face" stays literal text. About 28 common emoji names are supported (smiley face, winking face, heart, thumbs up/down, fire, rocket, party popper, check mark, shrug, skull, hundred, sparkles, sunglasses, …). Unknown names are left as spoken.
+Emoji require the spoken word **emoji** before the name, so saying "she sent me a smiley face" stays literal text. Unknown names are left as spoken. The full set of supported names:
+
+smiley face / smiley 🙂 · winking face 😉 · frowning face 🙁 · laughing face 😂 · crying face 😢 · angry face 😠 · thinking face 🤔 · heart eyes 😍 · heart ❤️ · broken heart 💔 · thumbs up 👍 · thumbs down 👎 · fire 🔥 · party popper 🎉 · rocket 🚀 · star ⭐ · check mark ✅ · cross mark ❌ · clapping hands 👏 · eyes 👀 · shrug 🤷 · skull 💀 · hundred 💯 · wave 👋 · sparkles ✨ · sunglasses 😎 · poop 💩
+
+Matching is case-insensitive and keeps trailing punctuation ("emoji thumbs up." becomes "👍."). The table lives in `App/Sources/TranscriptPostProcessor.swift` — PRs adding common names are welcome.
 
 ## Updates
 

@@ -5,6 +5,7 @@ let package = Package(
     name: "Internos",
     platforms: [.macOS(.v26)],
     targets: [
-        .executableTarget(name: "Internos", path: "Sources")
+        .executableTarget(name: "Internos", path: "Sources"),
+        .testTarget(name: "InternosTests", dependencies: ["Internos"], path: "Tests")
     ]
 )

@@ -63,7 +63,7 @@ final class TranscriptionEngine: Sendable {
 
         // Input stream finishing (hotkey release) ends analysis; finalize flushes the tail.
         try await analyzer.finalizeAndFinishThroughEndOfInput()
-        return try await consumer.value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return TranscriptPostProcessor.process(
+            try await consumer.value.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

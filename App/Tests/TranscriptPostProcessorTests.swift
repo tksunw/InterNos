@@ -16,4 +16,13 @@ final class TranscriptPostProcessorTests: XCTestCase {
         // Trailing "hashtag" with nothing after it stays literal.
         XCTAssertEqual(p("that's the hashtag"), "that's the hashtag")
     }
+
+    @MainActor
+    func testVersionCompare() {
+        XCTAssertTrue(UpdateChecker.isNewer("1.0.5", than: "1.0.4"))
+        XCTAssertTrue(UpdateChecker.isNewer("1.0.10", than: "1.0.9"))
+        XCTAssertFalse(UpdateChecker.isNewer("1.0.4", than: "1.0.5"))
+        XCTAssertFalse(UpdateChecker.isNewer("1.0.0", than: "1.0"))
+        XCTAssertFalse(UpdateChecker.isNewer("1.0", than: "1.0.0"))
+    }
 }

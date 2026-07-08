@@ -26,6 +26,24 @@ Tools like Wispr Flow are excellent, but they send your voice to cloud servers. 
 
 The hotkey, activation mode (push-to-talk or toggle), and microphone are configurable from the menu bar icon → Settings.
 
+## Spoken commands
+
+Punctuation and capitalization are automatic. On top of that, Internos rewrites a few spoken patterns after transcription (all on-device, same as everything else):
+
+| You say | You get |
+|---|---|
+| "hashtag yard" | `#yard` |
+| "emoji thumbs up" | 👍 |
+| "at sign" | `@` |
+| "dollar sign" | `$` |
+| "percent sign" | `%` |
+
+Emoji require the spoken word **emoji** before the name, so saying "she sent me a smiley face" stays literal text. About 28 common emoji names are supported (smiley face, winking face, heart, thumbs up/down, fire, rocket, party popper, check mark, shrug, skull, hundred, sparkles, sunglasses, …). Unknown names are left as spoken.
+
+## Updates
+
+Menu bar icon → **Check for Updates…** compares your version against the latest [GitHub release](../../releases) and offers the download page if you're behind. The check runs only when you click it — Internos makes no automatic network calls. Changes per release are in [CHANGELOG.md](CHANGELOG.md).
+
 ## How it works
 
 Three stages, all local:

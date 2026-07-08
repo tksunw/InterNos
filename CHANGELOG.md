@@ -1,0 +1,87 @@
+# Changelog
+
+All notable changes to Internos are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+- "Check for Updates…" menu item. Queries the GitHub latest-release API on
+  demand and offers the release page when a newer version exists. User-initiated
+  only — Internos still makes zero automatic network calls.
+
+### Fixed
+- Rapidly starting a new dictation while the previous one was still finalizing
+  no longer leaves the menu bar icon reading idle and the voice-print indicator
+  hidden during the new recording.
+- Two dictations within 300 ms no longer overwrite the clipboard contents saved
+  from before the first one.
+- If the clipboard was empty before dictating, it is now cleared again after
+  insertion instead of keeping the transcript.
+- Failed microphone starts no longer leak the audio tap; a data race between
+  the audio thread and stop() was removed.
+- Update check hardening: version comparison is component-wise, and only
+  https release URLs are ever opened.
+
+## [1.0.5] - 2026-07-07
+
+### Added
+- Spoken hashtags: "hashtag yard" is inserted as `#yard`.
+- Spoken emoji with an explicit prefix: "emoji thumbs up" is inserted as 👍.
+  The `emoji` keyword is required so literal speech ("she sent me a smiley
+  face") is never converted. ~28 common names supported.
+- Explicit spoken symbols: "at sign" → `@`, "dollar sign" → `$`,
+  "percent sign" → `%`.
+- Test target (`swift test`) covering the substitution rules.
+
+## [1.0.4] - 2026-07-02
+
+### Added
+- Drag-to-Applications DMG installer, notarized and stapled.
+
+### Fixed
+- Debug builds now use a distinct bundle ID (`net.timkennedy.internos.debug`)
+  so development copies never steal TCC permission grants from an installed
+  release copy.
+
+## [1.0.3] - 2026-07-02
+
+### Added
+- First notarized, distributable build (Developer ID signed, stapled).
+
+## [1.0.2] - 2026-07-02
+
+### Changed
+- Recording indicator upgraded to a live voice-print visualization.
+
+### Fixed
+- Transcript content is no longer written to the unified log (lengths only).
+
+## [1.0.1] - 2026-07-02
+
+### Fixed
+- Microphone access broken under the hardened runtime.
+
+## [1.0.0] - 2026-07-02
+
+Initial release.
+
+### Added
+- Hold-to-dictate (push-to-talk) and toggle activation modes with a
+  configurable global hotkey (default: Right Option).
+- Fully on-device transcription via Apple's `SpeechAnalyzer`/`SpeechTranscriber`
+  (macOS 26+, Apple Silicon, en-US).
+- Text insertion at the cursor via clipboard swap with clipboard restore.
+- Secure Input detection: refuses to inject into password fields and preserves
+  the transcript on the clipboard instead.
+- Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
+  permission onboarding, and speech model download UI.
+
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/tksunw/InterNos/compare/v1.0.4...v1.0.5
+[1.0.4]: https://github.com/tksunw/InterNos/compare/v1.0.3...v1.0.4
+[1.0.3]: https://github.com/tksunw/InterNos/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/tksunw/InterNos/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/tksunw/InterNos/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/tksunw/InterNos/releases/tag/v1.0.0

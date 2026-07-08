@@ -20,10 +20,12 @@ enum UpdateChecker {
                 let release = try JSONDecoder().decode(Release.self, from: data)
                 let latest = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
                 let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-                if current.compare(latest, options: .numeric) == .orderedAscending {
+                if isNewer(latest, than: current) {
+                    // Only ever open https links from the API response.
+                    let page = URL(string: release.html_url).flatMap { $0.scheme == "https" ? $0 : nil }
                     show(title: "Internos \(latest) is available",
                          text: "You have \(current). Download the new version from GitHub?",
-                         downloadURL: URL(string: release.html_url))
+                         downloadURL: page)
                 } else {
                     show(title: "You're up to date", text: "Internos \(current) is the latest version.")
                 }
@@ -32,6 +34,18 @@ enum UpdateChecker {
                      text: "GitHub wasn't reachable. Try again later.\n(\(error.localizedDescription))")
             }
         }
+    }
+
+    /// Component-wise compare so "1.0" == "1.0.0" (string .numeric would call it older).
+    static func isNewer(_ latest: String, than current: String) -> Bool {
+        let l = latest.split(separator: ".").map { Int($0) ?? 0 }
+        let c = current.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(l.count, c.count) {
+            let a = i < l.count ? l[i] : 0
+            let b = i < c.count ? c[i] : 0
+            if a != b { return a > b }
+        }
+        return false
     }
 
     private static func show(title: String, text: String, downloadURL: URL? = nil) {

@@ -8,6 +8,10 @@ import Carbon.HIToolbox
 
 @MainActor
 final class TextInserter {
+    // A dictation within the 300 ms restore window must not snapshot the injected
+    // transcript as the "user's clipboard": flush the pending restore first.
+    private var pendingRestore: (items: [[NSPasteboard.PasteboardType: Data]], work: DispatchWorkItem)?
+
     static func checkAccessibility(promptIfNeeded: Bool) -> Bool {
         if promptIfNeeded {
             // Literal key avoids the concurrency-unsafe global var kAXTrustedCheckOptionPrompt.
@@ -28,6 +32,11 @@ final class TextInserter {
         }
 
         let pasteboard = NSPasteboard.general
+        if let pending = pendingRestore {
+            pending.work.cancel()
+            Self.restore(pasteboard, items: pending.items)
+            pendingRestore = nil
+        }
         let saved = snapshot(pasteboard)
 
         pasteboard.clearContents()
@@ -37,9 +46,12 @@ final class TextInserter {
 
         // Restore the previous clipboard after the paste lands. 300 ms is a compromise:
         // long enough for slow apps to read the pasteboard, short enough not to surprise.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        let work = DispatchWorkItem { [weak self] in
             Self.restore(pasteboard, items: saved)
+            MainActor.assumeIsolated { self?.pendingRestore = nil }
         }
+        pendingRestore = (saved, work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
     private func postCommandV() {
@@ -64,8 +76,10 @@ final class TextInserter {
     }
 
     private static func restore(_ pasteboard: NSPasteboard, items: [[NSPasteboard.PasteboardType: Data]]) {
-        guard !items.isEmpty else { return }
+        // Always clear: if the clipboard was empty before dictation, leaving the
+        // transcript on it would persist it (and feed clipboard history/sync).
         pasteboard.clearContents()
+        guard !items.isEmpty else { return }
         let restored: [NSPasteboardItem] = items.map { entry in
             let item = NSPasteboardItem()
             for (type, data) in entry { item.setData(data, forType: type) }

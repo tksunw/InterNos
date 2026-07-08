@@ -56,8 +56,9 @@ final class AudioRecorder {
         // 1024-frame buffers (~21 ms at 48 kHz) give a smooth ~47 Hz level feed for the visualizer;
         // the analyzer is fed the converted buffers regardless of size.
         let levelCallback = onLevel
-        input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) { [weak self] buffer, _ in
-            guard let self, let continuation = self.continuation else { return }
+        // Capture the continuation directly: re-reading self.continuation here would race
+        // with stop() nilling it from the main thread. Yield-after-finish is a safe no-op.
+        input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) { buffer, _ in
 
             if let levelCallback, let ch = buffer.floatChannelData?[0] {
                 let frames = Int(buffer.frameLength)
@@ -74,18 +75,26 @@ final class AudioRecorder {
             guard let out = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: capacity) else { return }
             var err: NSError?
             nonisolated(unsafe) var fed = false
+            // convert() calls the input block synchronously on this thread; the buffer
+            // never actually crosses an isolation boundary.
+            nonisolated(unsafe) let source = buffer
             converter.convert(to: out, error: &err) { _, outStatus in
                 if fed { outStatus.pointee = .noDataNow; return nil }
                 fed = true
                 outStatus.pointee = .haveData
-                return buffer
+                return source
             }
             if err == nil, out.frameLength > 0 {
                 continuation.yield(AnalyzerInput(buffer: out))
             }
         }
 
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            stop() // tear down the tap and finish the stream, or the next start() orphans them
+            throw error
+        }
         return stream
     }
 

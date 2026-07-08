@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
+Maintain `CHANGELOG.md` (Keep a Changelog format): every user-visible change lands under `[Unreleased]`; on release, retitle that section to the version + date and add the compare link.
+
 v1.0.0 released (GitHub Releases, development-signed; notarization pending Developer ID credentials — `App/scripts/release.sh` handles it once `notarytool store-credentials internos` has been run and a Developer ID Application cert exists). `Internos-PRD.md` is the requirements doc.
 
 - `App/` — the real app (SwiftPM executable, assembled into a bundle). Build: `cd App && ./scripts/make-app.sh release` → `App/build/Internos.app`. Run it with `open build/Internos.app`, or run the inner binary directly to see NSLog output on stderr. Hold Right Option (default) → speak → release → text inserted at cursor. Signs with the local Apple Development identity so TCC grants persist across rebuilds.

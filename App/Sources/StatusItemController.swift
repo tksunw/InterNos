@@ -60,6 +60,9 @@ final class StatusItemController: NSObject {
         updateItem.target = self
         menu.addItem(updateItem)
         menu.addItem(.separator())
+        let aboutItem = NSMenuItem(title: "About Internos", action: #selector(showAbout), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
         menu.addItem(NSMenuItem(title: "Quit Internos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
 
@@ -96,6 +99,11 @@ final class StatusItemController: NSObject {
 
     @objc private func togglePause() { onTogglePause?() }
     @objc private func checkForUpdates() { UpdateChecker.check() }
+    @objc private func showAbout() {
+        // Menu-bar-only app: without activate the panel opens behind the frontmost app.
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(nil)
+    }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openSetup() { onOpenSetup?() }
 }

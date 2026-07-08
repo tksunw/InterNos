@@ -4,6 +4,12 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- "About Internos" menu item showing the standard About panel (version, build,
+  copyright).
+
 ## [1.0.6] - 2026-07-07
 
 First open-source release: the repository is now public under the MIT
@@ -84,6 +90,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v1.0.6...HEAD
 [1.0.6]: https://github.com/tksunw/InterNos/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/tksunw/InterNos/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/tksunw/InterNos/compare/v1.0.3...v1.0.4

@@ -38,7 +38,23 @@ enum PermissionsService {
 
     @discardableResult
     static func requestInputMonitoring() -> Bool {
-        CGRequestListenEventAccess()
+        let granted = CGRequestListenEventAccess()
+        if !granted {
+            // CGRequestListenEventAccess alone doesn't reliably create the TCC record,
+            // so the app never appears in the Input Monitoring pane and there's nothing
+            // to toggle. An actual listenOnly tap attempt registers it every time.
+            if let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: CGEventMask(1 << CGEventType.flagsChanged.rawValue),
+                callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
+                userInfo: nil
+            ) {
+                CFMachPortInvalidate(tap)
+            }
+        }
+        return granted
     }
 
     // MARK: - Accessibility (for synthetic ⌘V insertion)

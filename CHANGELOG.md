@@ -6,6 +6,11 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Requesting Input Monitoring during onboarding now reliably registers Internos
+  in the System Settings pane (previously the app could be impossible to grant:
+  the request API alone sometimes created no entry to toggle).
+
 ### Changed
 - Menu bar icon now uses the app's waveform-and-mic glyph when idle (and a
   slashed waveform when paused) instead of a generic microphone, so the menu

@@ -82,7 +82,7 @@ cd App
 
 This produces both `Internos-<version>.zip` (raw app) and `Internos-<version>.dmg` (drag-to-Applications installer), each notarized and stapled.
 
-One-time setup for a notarized release: a **Developer ID Application** certificate in the keychain, and stored notary credentials:
+One-time setup for a notarized release: `pipx install dmgbuild` (builds the styled installer window), a **Developer ID Application** certificate in the keychain, and stored notary credentials:
 
 ```sh
 xcrun notarytool store-credentials internos \

@@ -97,4 +97,4 @@ Without those, the script still produces a development-signed zip (fine for your
 
 ## License
 
-TBD.
+[MIT](LICENSE). Provided as-is, no warranty, no support commitment — issues and PRs are welcome but responses aren't guaranteed.

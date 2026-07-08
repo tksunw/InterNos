@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var inputDeviceUID: String = AppSettings.shared.inputDeviceUID ?? ""
     @State private var playSounds = AppSettings.shared.playSounds
     @State private var launchAtLogin = AppSettings.shared.launchAtLogin
+    @State private var checkUpdatesAtLaunch = AppSettings.shared.checkUpdatesAtLaunch
     @State private var devices = AudioDevices.inputDevices()
 
     var onChange: (() -> Void)?
@@ -38,6 +39,13 @@ struct SettingsView: View {
                 Toggle("Play sounds", isOn: $playSounds)
                 Toggle("Launch at login", isOn: $launchAtLogin)
             }
+            Section {
+                Toggle("Check for updates at launch", isOn: $checkUpdatesAtLaunch)
+            } footer: {
+                Text("One request to GitHub at startup; silent unless an update exists. Off means Internos makes no network calls you don't click for.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 380)
@@ -50,6 +58,7 @@ struct SettingsView: View {
         }
         .onChange(of: playSounds) { AppSettings.shared.playSounds = playSounds }
         .onChange(of: launchAtLogin) { AppSettings.shared.launchAtLogin = launchAtLogin }
+        .onChange(of: checkUpdatesAtLaunch) { AppSettings.shared.checkUpdatesAtLaunch = checkUpdatesAtLaunch }
     }
 }
 

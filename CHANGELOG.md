@@ -10,6 +10,8 @@ All notable changes to Internos are documented here. The format follows
 - "Check for Updates…" menu item. Queries the GitHub latest-release API on
   demand and offers the release page when a newer version exists. User-initiated
   only — Internos still makes zero automatic network calls.
+- Optional "Check for updates at launch" setting (default off). When enabled,
+  one request to GitHub at startup, silent unless an update is available.
 
 ### Fixed
 - Rapidly starting a new dictation while the previous one was still finalizing

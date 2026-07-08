@@ -42,7 +42,7 @@ Emoji require the spoken word **emoji** before the name, so saying "she sent me 
 
 ## Updates
 
-Menu bar icon → **Check for Updates…** compares your version against the latest [GitHub release](../../releases) and offers the download page if you're behind. The check runs only when you click it — Internos makes no automatic network calls. Changes per release are in [CHANGELOG.md](CHANGELOG.md).
+Menu bar icon → **Check for Updates…** compares your version against the latest [GitHub release](../../releases) and offers the download page if you're behind. By default the check runs only when you click it — Internos makes no automatic network calls. If you'd rather be told automatically, Settings has an opt-in "Check for updates at launch" toggle (off by default): one request to GitHub at startup, silent unless an update exists. Changes per release are in [CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
 

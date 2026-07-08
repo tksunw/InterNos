@@ -34,6 +34,10 @@ final class DictationController {
             MainActor.assumeIsolated { self?.indicator.pushLevel(level) }
         }
 
+        if AppSettings.shared.checkUpdatesAtLaunch {
+            UpdateChecker.check(quiet: true)
+        }
+
         let modelInstalled = await engine.modelStatus() == .installed
         if PermissionsService.allGranted && modelInstalled {
             await initializePipeline()

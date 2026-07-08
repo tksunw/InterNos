@@ -9,7 +9,9 @@ import AppKit
 enum UpdateChecker {
     private static let latestReleaseAPI = URL(string: "https://api.github.com/repos/tksunw/InterNos/releases/latest")!
 
-    static func check() {
+    /// quiet: only surface an available update — no "up to date" or error alerts.
+    /// Used by the opt-in launch check so a healthy start stays silent.
+    static func check(quiet: Bool = false) {
         Task {
             do {
                 let (data, _) = try await URLSession.shared.data(from: latestReleaseAPI)
@@ -26,12 +28,14 @@ enum UpdateChecker {
                     show(title: "Internos \(latest) is available",
                          text: "You have \(current). Download the new version from GitHub?",
                          downloadURL: page)
-                } else {
+                } else if !quiet {
                     show(title: "You're up to date", text: "Internos \(current) is the latest version.")
                 }
             } catch {
-                show(title: "Couldn't check for updates",
-                     text: "GitHub wasn't reachable. Try again later.\n(\(error.localizedDescription))")
+                if !quiet {
+                    show(title: "Couldn't check for updates",
+                         text: "GitHub wasn't reachable. Try again later.\n(\(error.localizedDescription))")
+                }
             }
         }
     }

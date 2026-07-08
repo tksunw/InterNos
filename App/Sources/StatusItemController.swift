@@ -56,6 +56,9 @@ final class StatusItemController: NSObject {
         let setupItem = NSMenuItem(title: "Setup & Permissions…", action: #selector(openSetup), keyEquivalent: "")
         setupItem.target = self
         menu.addItem(setupItem)
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Internos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -92,6 +95,7 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func togglePause() { onTogglePause?() }
+    @objc private func checkForUpdates() { UpdateChecker.check() }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openSetup() { onOpenSetup?() }
 }

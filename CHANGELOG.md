@@ -4,6 +4,14 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Menu bar icon now uses the app's waveform-and-mic glyph when idle (and a
+  slashed waveform when paused) instead of a generic microphone, so the menu
+  bar presence is recognizably Internos. Recording, transcribing, and error
+  states keep their existing symbols.
+
 ## [1.0.7] - 2026-07-07
 
 ### Added
@@ -90,6 +98,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v1.0.7...HEAD
 [1.0.7]: https://github.com/tksunw/InterNos/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/tksunw/InterNos/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/tksunw/InterNos/compare/v1.0.4...v1.0.5

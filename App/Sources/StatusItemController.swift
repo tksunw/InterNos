@@ -11,13 +11,16 @@ enum AppState {
     case error
     case disabled
 
+    // Idle/disabled use waveform.and.mic — the same glyph as the app icon (make-icon.swift),
+    // so the menu bar presence reads as Internos, not a generic mic. Transient states keep
+    // symbols that say "live right now"; error stays the universal warning.
     var symbolName: String {
         switch self {
-        case .idle: "mic"
+        case .idle: "waveform.and.mic"
         case .recording: "mic.fill"
         case .transcribing: "waveform"
         case .error: "exclamationmark.triangle"
-        case .disabled: "mic.slash"
+        case .disabled: "waveform.slash"
         }
     }
 }

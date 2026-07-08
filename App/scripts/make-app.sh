@@ -5,7 +5,14 @@ set -euo pipefail
 
 CONFIG="${1:-release}"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$DIR/build/Internos.app"
+# Debug and release must NOT share an output path: TCC ties grants to bundle ID +
+# path + signature, and one path alternating between two identities corrupts the
+# permission panes (toggles that don't stick / attach to the wrong binary).
+if [[ "$CONFIG" == "debug" ]]; then
+    APP="$DIR/build/debug/Internos Dev.app"
+else
+    APP="$DIR/build/Internos.app"
+fi
 
 cd "$DIR"
 swift build -c "$CONFIG"

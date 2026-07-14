@@ -4,6 +4,43 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-07-14
+
+### Fixed
+- Back-to-back dictations now always insert in recording order, even when a later
+  utterance finishes transcribing first, and an earlier utterance's completion can
+  no longer flicker the menu-bar icon, hide the indicator, or play sounds over a
+  newer recording.
+- Clipboard restoration no longer overwrites content you copied right after
+  dictating: the original clipboard is put back only if the pasteboard still holds
+  the injected transcript.
+- The transcript is pasted only into the app that was frontmost when you released
+  the hotkey. If you switch apps during finalization (or that app quits), Internos
+  refuses to paste, keeps the transcript on the clipboard, and shows the error state.
+- Pause now cancels all in-flight work: nothing is inserted after you pause, and a
+  transcription finishing while paused can no longer flip the icon back to idle. A
+  transcript that had already completed is preserved on the clipboard, not injected.
+- Releasing the dictation key while its left-side twin is held down (e.g. Right
+  Option released while Left Option is held) now correctly stops recording, and a
+  briefly disabled event tap can no longer leave a recording stuck on.
+- Setup failures (model install, event tap) now stay visible as a persistent error
+  instead of quietly reverting to the idle icon after a few seconds.
+- The setup window no longer reports the speech model as installed until macOS
+  actually reports it installed, shows download errors in the window itself, and
+  ignores repeated Download clicks while an attempt is running.
+- A failed model download no longer leaves its progress timer running forever.
+- A synthetic paste that can't be constructed is now reported as an error (with the
+  transcript preserved on the clipboard) instead of being silently reported as
+  success.
+
+### Changed
+- The injected transcript is now tagged with the standard transient/concealed
+  pasteboard marker types so well-behaved clipboard managers skip it.
+- README and privacy policy now describe the clipboard-swap insertion accurately:
+  the transcript briefly passes through the general pasteboard, where Universal
+  Clipboard or clipboard managers may observe it. Claims about Internos's own
+  network behavior are unchanged (still zero calls in the dictation path).
+
 ## [1.0.8] - 2026-07-07
 
 ### Fixed
@@ -103,6 +140,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[1.1.0]: https://github.com/tksunw/InterNos/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/tksunw/InterNos/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/tksunw/InterNos/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/tksunw/InterNos/compare/v1.0.5...v1.0.6

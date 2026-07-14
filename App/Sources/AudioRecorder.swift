@@ -5,7 +5,14 @@
 import AVFoundation
 import Speech
 
-final class AudioRecorder {
+/// Controller-facing seam so lifecycle tests can run without a real microphone.
+protocol RecordingSource: AnyObject {
+    var onLevel: (@Sendable (CGFloat) -> Void)? { get set }
+    func start(analyzerFormat: AVAudioFormat, deviceUID: String?) throws -> AsyncStream<AnalyzerInput>
+    func stop()
+}
+
+final class AudioRecorder: RecordingSource {
     // Fresh engine per utterance: a reused AVAudioEngine can report a stale/invalid input
     // format after stop()/removeTap() cycles, which silently yields empty transcripts.
     private var engine: AVAudioEngine?
@@ -108,10 +115,16 @@ final class AudioRecorder {
     }
 }
 
-enum InternosError: Error {
+enum InternosError: Error, Equatable {
     case audioConverterUnavailable
     case analyzerFormatUnavailable
     case modelNotInstalled
     case secureInputActive
     case accessibilityNotGranted
+    /// The app frontmost at insertion time is not the one that owned the cursor when
+    /// recording stopped (or that app exited). Distinct from Secure Input/Accessibility
+    /// failures so logs and handling don't conflate them.
+    case insertionTargetChanged
+    /// CGEvent construction for the synthetic ⌘V failed; nothing was posted.
+    case pasteEventFailed
 }

@@ -1,12 +1,12 @@
 # Privacy Policy
 
-Internos is built on one premise: your voice and your words never leave your Mac.
+Internos is built on one premise: your voice is processed entirely on your Mac, and Internos never transmits your words anywhere.
 
 ## The short version
 
 - All speech processing happens on-device, using Apple's Speech framework.
 - Audio is never recorded to disk, transmitted, or retained. It exists only in memory during an utterance.
-- Transcripts are never stored, logged, or transmitted. They go to the app you're typing into and nowhere else.
+- Transcripts are never stored, logged, or transmitted by Internos. To insert text, the transcript briefly passes through the macOS general pasteboard (see "The clipboard" below), which other clipboard-aware software on your system can observe.
 - There is no telemetry, no analytics, no crash reporting, no accounts, and no data collection of any kind.
 - Internos makes zero network calls in the dictation path. You can verify this with Little Snitch or any packet monitor.
 
@@ -16,7 +16,9 @@ Settings only: your hotkey choice, activation mode, microphone selection, and to
 
 ## The clipboard
 
-To insert text at your cursor, Internos briefly places the transcript on the clipboard, pastes it, and restores your previous clipboard contents about a third of a second later. If a password field has focus (macOS Secure Input), Internos refuses to paste and instead leaves the transcript on the clipboard so it isn't lost — be aware that clipboard managers or Universal Clipboard may see it there, as they would any copied text.
+To insert text at your cursor, Internos briefly places the transcript on the general pasteboard, pastes it, and restores your previous clipboard contents about a third of a second later (unless you copied something new in that window — a newer copy is never overwritten). While the transcript is on the pasteboard, it is visible to anything on your system that watches the clipboard: macOS features like Universal Clipboard may sync it to your other devices, and installed clipboard managers may record it. That is how the macOS pasteboard works and is outside Internos's control. Internos tags the entry with the standard `org.nspasteboard` transient and concealed marker types, which ask clipboard tools to skip or conceal it; well-behaved managers honor these markers, but they are a convention, not a guarantee.
+
+If a password field has focus (macOS Secure Input), Internos refuses to paste and instead leaves the transcript on the clipboard so it isn't lost. The same recovery applies when insertion is blocked for other reasons (for example, you switched apps before the paste landed, or Accessibility permission was revoked).
 
 ## The only network activity
 

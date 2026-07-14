@@ -1,13 +1,28 @@
 // Global dictation hotkey via a listenOnly CGEventTap.
 // listenOnly needs Input Monitoring (not Accessibility) per Apple DTS — PRD §7.
 // Watches a configurable modifier key (AppSettings.hotkey); down/up derived from
-// the keycode + generic modifier flag on flagsChanged events.
+// the keycode + the device-specific modifier flag on flagsChanged events, so
+// holding the matching left-side key cannot mask the watched right key's release.
 
 import AppKit
 import CoreGraphics
 
+/// Controller-facing seam so lifecycle tests can drive hotkey events without a real event tap.
 @MainActor
-final class HotkeyMonitor {
+protocol HotkeyMonitoring: AnyObject {
+    var onKeyDown: (() -> Void)? { get set }
+    var onKeyUp: (() -> Void)? { get set }
+    func start() -> Bool
+    func reloadSettings()
+}
+
+@MainActor
+final class HotkeyMonitor: HotkeyMonitoring {
+    enum Transition {
+        case down
+        case up
+    }
+
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
 
@@ -16,10 +31,29 @@ final class HotkeyMonitor {
     private var isHeld = false
     private var watched: HotkeyChoice = AppSettings.shared.hotkey
 
-    /// Re-read the configured hotkey after a settings change.
+    /// Pure transition logic, kept separate from the event tap so it is unit-testable.
+    /// Down/up comes from the selected key's device-specific flag bit, not the generic
+    /// modifier mask: with Left+Right Option both held, releasing Right Option clears
+    /// only the device bit while maskAlternate stays set.
+    static func transition(isHeld: Bool, watched: HotkeyChoice, keyCode: Int64, flags: UInt64)
+        -> (isHeld: Bool, event: Transition?)
+    {
+        guard keyCode == watched.rawValue else { return (isHeld, nil) }
+        let down = flags & watched.deviceFlagMask != 0
+        if down && !isHeld { return (true, .down) }
+        if !down && isHeld { return (false, .up) }
+        return (isHeld, nil) // duplicate flagsChanged for an unchanged state: no callback
+    }
+
+    /// Re-read the configured hotkey after a settings change. If the old key is mid-hold,
+    /// end it (emitting keyUp so a recording can't run forever) before switching keys;
+    /// the new key starts from a clean not-held state with no synthetic transition.
     func reloadSettings() {
+        if isHeld {
+            isHeld = false
+            onKeyUp?()
+        }
         watched = AppSettings.shared.hotkey
-        isHeld = false
     }
 
     /// Returns false if the event tap could not be created (Input Monitoring not granted).
@@ -39,7 +73,7 @@ final class HotkeyMonitor {
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    MainActor.assumeIsolated { monitor.reenable() }
+                    MainActor.assumeIsolated { monitor.handleTapDisabled() }
                 } else if type == .flagsChanged {
                     let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
                     let flags = event.flags.rawValue
@@ -60,19 +94,23 @@ final class HotkeyMonitor {
         return true
     }
 
-    private func handleFlagsChanged(keyCode: Int64, flags: UInt64) {
-        guard keyCode == watched.rawValue else { return }
-        let down = flags & watched.flagMask != 0
-        if down && !isHeld {
-            isHeld = true
-            onKeyDown?()
-        } else if !down && isHeld {
-            isHeld = false
-            onKeyUp?()
+    func handleFlagsChanged(keyCode: Int64, flags: UInt64) {
+        let (held, event) = Self.transition(isHeld: isHeld, watched: watched, keyCode: keyCode, flags: flags)
+        isHeld = held
+        switch event {
+        case .down: onKeyDown?()
+        case .up: onKeyUp?()
+        case nil: break
         }
     }
 
-    private func reenable() {
+    /// The tap was disabled (timeout or user input) — we may have missed the release.
+    /// Fail safe: end any in-flight hold so a recording can't remain stuck on.
+    func handleTapDisabled() {
+        if isHeld {
+            isHeld = false
+            onKeyUp?()
+        }
         if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
     }
 }

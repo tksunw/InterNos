@@ -8,7 +8,11 @@ enum AppState {
     case idle
     case recording
     case transcribing
+    /// Transient utterance error — auto-reverts to idle.
     case error
+    /// Persistent setup failure (model or event tap) — stays until a successful retry,
+    /// so a broken pipeline can never look ready (IR-007).
+    case setupFailed
     case disabled
 
     // Idle/disabled use waveform.and.mic — the same glyph as the app icon (make-icon.swift),
@@ -19,25 +23,39 @@ enum AppState {
         case .idle: "waveform.and.mic"
         case .recording: "mic.fill"
         case .transcribing: "waveform"
-        case .error: "exclamationmark.triangle"
+        case .error, .setupFailed: "exclamationmark.triangle"
         case .disabled: "waveform.slash"
         }
     }
+
+    /// Only transient utterance errors revert on a timer; a setup failure must remain
+    /// visible until a retry actually succeeds.
+    var autoRevertsToIdle: Bool { self == .error }
+}
+
+/// Controller-facing seam so lifecycle tests can observe menu-bar state without NSStatusBar.
+@MainActor
+protocol StatusPresenting: AnyObject {
+    var onTogglePause: (() -> Void)? { get set }
+    var onOpenSettings: (() -> Void)? { get set }
+    var onOpenSetup: (() -> Void)? { get set }
+    var isPaused: Bool { get set }
+    func setState(_ state: AppState)
+    func refreshHotkeyHint()
 }
 
 @MainActor
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, StatusPresenting {
     private let statusItem: NSStatusItem
     private var revertTimer: Timer?
 
     var onTogglePause: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenSetup: (() -> Void)?
+    // Title only: the icon state is owned by DictationController, which knows whether
+    // resume should land on idle or on a persistent setup failure (IR-004/IR-007).
     var isPaused = false {
-        didSet {
-            pauseItem.title = isPaused ? "Resume Dictation" : "Pause Dictation"
-            setState(isPaused ? .disabled : .idle)
-        }
+        didSet { pauseItem.title = isPaused ? "Resume Dictation" : "Pause Dictation" }
     }
 
     private let pauseItem = NSMenuItem(title: "Pause Dictation", action: #selector(togglePause), keyEquivalent: "")
@@ -89,7 +107,7 @@ final class StatusItemController: NSObject {
         let image = NSImage(systemSymbolName: state.symbolName, accessibilityDescription: "Internos")
         image?.isTemplate = true
         statusItem.button?.image = image
-        if state == .error {
+        if state.autoRevertsToIdle {
             // Fail loud but briefly (PRD §9), then return to idle.
             revertTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { _ in
                 Task { @MainActor [weak self] in

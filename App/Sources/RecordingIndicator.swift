@@ -103,8 +103,16 @@ struct RecordingIndicatorView: View {
     }
 }
 
+/// Controller-facing seam so lifecycle tests can observe the indicator without NSPanel.
 @MainActor
-final class RecordingIndicator {
+protocol IndicatorPresenting: AnyObject {
+    func show(_ state: IndicatorState)
+    func hide()
+    func pushLevel(_ level: CGFloat)
+}
+
+@MainActor
+final class RecordingIndicator: IndicatorPresenting {
     private var panel: NSPanel?
     private let meter = LevelMeter()
     private lazy var hosting = NSHostingController(

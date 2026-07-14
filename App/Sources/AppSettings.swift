@@ -32,14 +32,15 @@ enum HotkeyChoice: Int64, CaseIterable, Identifiable {
         case .fn: "Fn / Globe"
         }
     }
-    /// The generic CGEventFlags bit that indicates this modifier is down. Paired with the
-    /// keycode check in HotkeyMonitor, this distinguishes down from up on flagsChanged.
-    var flagMask: UInt64 {
+    /// Device-specific CGEventFlags bit for this exact physical key (IOKit NX_DEVICE… masks,
+    /// IOLLEvent.h). The generic masks (maskAlternate etc.) stay set while the matching
+    /// left-side key is held, which would swallow the watched right key's release.
+    var deviceFlagMask: UInt64 {
         switch self {
-        case .rightOption: CGEventFlags.maskAlternate.rawValue
-        case .rightCommand: CGEventFlags.maskCommand.rawValue
-        case .rightControl: CGEventFlags.maskControl.rawValue
-        case .fn: CGEventFlags.maskSecondaryFn.rawValue
+        case .rightOption: 0x0000_0040   // NX_DEVICERALTKEYMASK
+        case .rightCommand: 0x0000_0010  // NX_DEVICERCMDKEYMASK
+        case .rightControl: 0x0000_2000  // NX_DEVICERCTLKEYMASK
+        case .fn: CGEventFlags.maskSecondaryFn.rawValue // Fn has no left/right variant
         }
     }
 }

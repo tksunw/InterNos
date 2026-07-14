@@ -2,7 +2,7 @@
 
 **Dictation that stays between us.**
 
-Internos is a macOS menu bar utility for fully on-device voice-to-text: hold a hotkey, speak, release, and the transcription appears at your cursor in whatever app you're using. All speech processing runs on your Mac using Apple's native Speech framework. No audio or text ever leaves the machine — zero network calls in the transcription path.
+Internos is a macOS menu bar utility for fully on-device voice-to-text: hold a hotkey, speak, release, and the transcription appears at your cursor in whatever app you're using. All speech processing runs on your Mac using Apple's native Speech framework. Internos makes zero network calls in the transcription path — your audio is never transmitted anywhere. Insertion works through a brief clipboard swap, so macOS clipboard services (Universal Clipboard, clipboard managers) can momentarily see the transcript, like any text you copy; see [PRIVACY.md](PRIVACY.md).
 
 ## Why
 
@@ -54,16 +54,17 @@ Three stages, all local:
 
 1. **Capture** — `AVAudioEngine` mic tap, converted to the analyzer's native format (16 kHz mono)
 2. **Transcribe** — Apple's `SpeechAnalyzer` + `SpeechTranscriber` (the same on-device engine behind system dictation, exposed as API in macOS 26)
-3. **Insert** — clipboard swap with a synthetic ⌘V, then your original clipboard is restored
+3. **Insert** — clipboard swap with a synthetic ⌘V, then your original clipboard is restored (only if you haven't copied something new in the meantime — a fresh copy always wins)
 
 Measured release-to-inserted-text latency: well under half a second for typical utterances.
 
-If a password field has focus (macOS Secure Input), Internos refuses to inject anything, plays the error sound, and leaves the transcript on the clipboard so nothing is lost.
+If a password field has focus (macOS Secure Input), Internos refuses to inject anything, plays the error sound, and leaves the transcript on the clipboard so nothing is lost. The same applies if you switch apps between releasing the hotkey and the paste landing: Internos won't type into the wrong window.
 
 ## Privacy posture
 
-- No network calls in the transcription path — verifiable with Little Snitch or any packet monitor
+- No network calls in the transcription path — verifiable with Little Snitch or any packet monitor; your audio never leaves the Mac
 - No accounts, no telemetry, no transcript storage; settings are the only persisted state
+- Insertion briefly places the transcript on the general pasteboard. macOS services like Universal Clipboard, and any installed clipboard manager, may observe or sync pasteboard contents — that's outside Internos's control. Internos marks the entry with the standard transient/concealed pasteboard types, which well-behaved clipboard managers honor (not guaranteed for all)
 - The speech model is downloaded once by macOS itself (Apple's asset CDN) and shared system-wide
 
 Full policy: [PRIVACY.md](PRIVACY.md).

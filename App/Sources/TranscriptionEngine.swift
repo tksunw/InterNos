@@ -6,7 +6,15 @@
 import AVFoundation
 import Speech
 
-final class TranscriptionEngine: Sendable {
+/// Controller-facing seam so lifecycle tests can substitute a deterministic transcriber.
+protocol TranscriptionProviding: Sendable {
+    func modelStatus() async -> AssetInventory.Status
+    func ensureModel() async throws
+    func analyzerFormat() async throws -> AVAudioFormat
+    func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String
+}
+
+final class TranscriptionEngine: TranscriptionProviding, Sendable {
     private let locale = Locale(identifier: "en_US")
 
     func makeTranscriber() -> SpeechTranscriber {
@@ -27,6 +35,11 @@ final class TranscriptionEngine: Sendable {
         case .supported, .downloading:
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
                 try await request.downloadAndInstall()
+            }
+            // A nil request or a returned downloadAndInstall() is not proof of
+            // installation (IR-006): only a verified .installed status counts.
+            guard await AssetInventory.status(forModules: [makeTranscriber()]) == .installed else {
+                throw InternosError.modelNotInstalled
             }
         case .unsupported:
             throw InternosError.modelNotInstalled

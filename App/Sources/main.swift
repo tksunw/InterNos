@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: DictationController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let controller = DictationController()
+        let controller = DictationController(customizations: CustomizationStore())
         self.controller = controller
         Task { await controller.start() }
     }

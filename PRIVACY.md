@@ -12,7 +12,16 @@ Internos is built on one premise: your voice is processed entirely on your Mac, 
 
 ## What Internos stores
 
-Settings only: your hotkey choice, activation mode, microphone selection, and toggles. These live in the standard macOS preferences store (`UserDefaults`) on your Mac. Nothing else is persisted.
+Configuration only:
+
+- Settings (hotkey choice, activation mode, microphone selection, smart-cleanup mode, toggles) in the standard macOS preferences store (`UserDefaults`).
+- Your personal dictionary and snippets in a local JSON file, `~/Library/Application Support/<bundle id>/customizations.json`, readable only by your user account. It contains what you typed into Settings — never transcripts, never audio, never model output. Export happens only when you choose Export and pick a location; nothing is placed in iCloud automatically.
+
+Nothing else is persisted. In particular, the "last dictation" the menu offers to copy or paste again lives in process memory only: it is never written to disk or logs, and quitting Internos erases it.
+
+## Smart cleanup (Apple Intelligence)
+
+The optional smart-cleanup feature (off by default) uses Apple's Foundation Models framework — the on-device Apple Intelligence language model. When enabled, your transcribed text is processed by that model **on this Mac**: no network request, no cloud model, no fallback service, and Internos never logs the text sent to or returned from it. Snippet contents and personal-dictionary outputs are excluded from what the model sees. Internos does not read surrounding text, selected text, window titles, or clipboard contents to give the model context. Turning the feature off (or lacking an Apple-Intelligence-eligible Mac) changes nothing about dictation itself.
 
 ## The clipboard
 
@@ -22,7 +31,7 @@ If a password field has focus (macOS Secure Input), Internos refuses to paste an
 
 ## The only network activity
 
-Two cases, neither in the dictation path, neither carrying any of your data:
+Two cases, neither in the dictation path, neither carrying any of your data (smart cleanup, replacements, snippets, and commands all run locally and add no network activity):
 
 1. **Speech model download.** On first run, macOS itself downloads Apple's on-device speech model from Apple's servers. This is a system asset, shared across apps, fetched by macOS — not by Internos.
 2. **Update check.** If you click "Check for Updates…" (or enable the off-by-default "Check for updates at launch" setting), Internos makes one HTTPS request to the GitHub API to compare version numbers. The request contains no personal data, no identifiers, and nothing about your usage. With the setting off and the menu item unclicked, Internos makes no network requests at all.

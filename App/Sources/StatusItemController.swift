@@ -39,6 +39,12 @@ protocol StatusPresenting: AnyObject {
     var onTogglePause: (() -> Void)? { get set }
     var onOpenSettings: (() -> Void)? { get set }
     var onOpenSetup: (() -> Void)? { get set }
+    var onCopyLast: (() -> Void)? { get set }
+    var onCopyLastRaw: (() -> Void)? { get set }
+    var onPasteLast: (() -> Void)? { get set }
+    var onClearLast: (() -> Void)? { get set }
+    /// Queried when the menu opens to enable/hide the recovery items.
+    var recoveryState: (() -> RecoveryMenuState)? { get set }
     var isPaused: Bool { get set }
     func setState(_ state: AppState)
     func refreshHotkeyHint()
@@ -52,6 +58,11 @@ final class StatusItemController: NSObject, StatusPresenting {
     var onTogglePause: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenSetup: (() -> Void)?
+    var onCopyLast: (() -> Void)?
+    var onCopyLastRaw: (() -> Void)?
+    var onPasteLast: (() -> Void)?
+    var onClearLast: (() -> Void)?
+    var recoveryState: (() -> RecoveryMenuState)?
     // Title only: the icon state is owned by DictationController, which knows whether
     // resume should land on idle or on a persistent setup failure (IR-004/IR-007).
     var isPaused = false {
@@ -59,6 +70,10 @@ final class StatusItemController: NSObject, StatusPresenting {
     }
 
     private let pauseItem = NSMenuItem(title: "Pause Dictation", action: #selector(togglePause), keyEquivalent: "")
+    private let copyLastItem = NSMenuItem(title: "Copy Last Dictation", action: #selector(copyLast), keyEquivalent: "")
+    private let copyLastRawItem = NSMenuItem(title: "Copy Last Raw Dictation", action: #selector(copyLastRaw), keyEquivalent: "")
+    private let pasteLastItem = NSMenuItem(title: "Paste Last Dictation", action: #selector(pasteLast), keyEquivalent: "")
+    private let clearLastItem = NSMenuItem(title: "Clear Last Dictation", action: #selector(clearLast), keyEquivalent: "")
 
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -71,6 +86,12 @@ final class StatusItemController: NSObject, StatusPresenting {
         menu.addItem(.separator())
         pauseItem.target = self
         menu.addItem(pauseItem)
+        menu.addItem(.separator())
+        for item in [copyLastItem, copyLastRawItem, pasteLastItem, clearLastItem] {
+            item.target = self
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -85,6 +106,7 @@ final class StatusItemController: NSObject, StatusPresenting {
         aboutItem.target = self
         menu.addItem(aboutItem)
         menu.addItem(NSMenuItem(title: "Quit Internos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.delegate = self
         statusItem.menu = menu
 
         setState(.idle)
@@ -119,6 +141,10 @@ final class StatusItemController: NSObject, StatusPresenting {
     }
 
     @objc private func togglePause() { onTogglePause?() }
+    @objc private func copyLast() { onCopyLast?() }
+    @objc private func copyLastRaw() { onCopyLastRaw?() }
+    @objc private func pasteLast() { onPasteLast?() }
+    @objc private func clearLast() { onClearLast?() }
     @objc private func checkForUpdates() { UpdateChecker.check() }
     @objc private func showAbout() {
         // Menu-bar-only app: without activate the panel opens behind the frontmost app.
@@ -127,4 +153,23 @@ final class StatusItemController: NSObject, StatusPresenting {
     }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openSetup() { onOpenSetup?() }
+}
+
+extension StatusItemController: NSMenuDelegate, NSMenuItemValidation {
+    func menuWillOpen(_ menu: NSMenu) {
+        // Raw copy exists only when smart cleanup actually changed the text.
+        copyLastRawItem.isHidden = !(recoveryState?().hasDistinctRaw ?? false)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let state = recoveryState?() ?? RecoveryMenuState()
+        switch menuItem.action {
+        case #selector(copyLast), #selector(pasteLast), #selector(clearLast):
+            return state.hasTranscript
+        case #selector(copyLastRaw):
+            return state.hasDistinctRaw
+        default:
+            return true
+        }
+    }
 }

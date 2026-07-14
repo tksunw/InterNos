@@ -83,14 +83,31 @@ Primary persona: **privacy-conscious power users** — the kind of person who re
 | F8 | Basic settings: hotkey remap, input device selection, launch-at-login | Table stakes for this category of utility |
 | F9 | Visual + audio confirmation of state (recording / processing / done / error) | Small, unobtrusive — this is the kind of app that should almost disappear when working correctly |
 
-### Stretch (v1.1+, not MVP)
+### Implemented post-v1 (2026-07, feature handoff)
 
-- Light on-device text cleanup/formatting pass (filler word removal, punctuation correction) using Apple's on-device **Foundation Models** framework — this is the same "on-device LLM" layer Apple introduced alongside `SpeechAnalyzer`, so it's a natural, still-fully-local extension rather than a new dependency. Note the **fixed 4096-token context window** (see §11) — fine for short-to-medium utterances, but keep the cleanup prompt bounded and don't feed it very long transcripts wholesale.
-- **Self-correction / "backtrack" cleanup** — beyond simple filler removal, collapse spoken false-starts and corrections (e.g., "coffee at 2, actually 3" → "coffee at 3"). This is a distinct, higher-value behavior that competitors (Wispr Flow's "Backtrack") treat as table-stakes; a good fit for the Foundation Models pass.
+The following former stretch items shipped as a staged transcript pipeline
+(`TranscriptCommandParser` → optional Foundation Models cleanup → user
+replacements → renderer), with protected segments guaranteeing snippet and
+replacement output is never re-processed or sent to the model:
+
+- **Smart cleanup** — optional on-device Foundation Models pass (Off/Light/Polished,
+  default Off), one fresh `LanguageModelSession` per utterance, 2 s deadline,
+  4,000-char input cap, output validation, soft fallback to deterministic text.
+  Covers filler removal and self-correction ("backtrack") behavior.
+- **Personal dictionary / replacements** — deterministic post-transcription
+  find-and-replace (the recognition layer is inert, per the spike), persisted in
+  `~/Library/Application Support/<bundle id>/customizations.json`.
+- **Voice-triggered snippets** — "snippet <name>" inserts exact stored text.
+- **Structured voice commands** — new line/paragraph, bullet/numbered lists,
+  quotes, parentheses, and a `literal` escape.
+- **Volatile last-transcript recovery** — Copy/Paste/Copy Raw/Clear Last Dictation
+  menu items backed by a memory-only store (deliberately not a persisted history).
+
+### Stretch (v2+, not built)
+
 - **Command mode** — a separate hotkey to transform highlighted text by voice (rewrite / fix / translate), inserting inline or replacing the selection. This is Wispr Flow's "Command Mode." Explicitly a **v2+ non-goal** for now, but named so the architecture doesn't preclude it.
 - Per-app formatting profiles (e.g., no auto-capitalization in a terminal, markdown-friendly formatting in Notes).
-- History/undo — a small local log of recent transcriptions in case an insertion goes to the wrong window (also serves as the recovery buffer for the Secure-Input fail-loud case, F4a).
-- Custom vocabulary / user dictionary once/if Apple exposes phrase-boosting on the new framework, or via a Foundation Models find-and-replace pass in the interim.
+- Persistent transcription history (the volatile recovery buffer above is intentionally memory-only).
 
 ---
 

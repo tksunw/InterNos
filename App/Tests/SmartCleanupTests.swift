@@ -1,0 +1,189 @@
+// Feature 4: cleanup coordinator bounds (deadline, size cap, validation),
+// pipeline integration (protected segments, replacements-after-cleanup), and
+// controller-level cancellation. All against a fake cleaner — no Apple Intelligence.
+
+import XCTest
+@testable import Internos
+
+final class FakeCleaner: SmartCleaning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _inputs: [String] = []
+    var inputs: [String] { lock.withLock { _inputs } }
+
+    var transform: @Sendable (String) -> String? = { _ in nil }
+    var gate: Gate?
+
+    func clean(_ text: String, mode: CleanupMode) async -> String? {
+        lock.withLock { _inputs.append(text) }
+        if let gate { await gate.wait() }
+        return transform(text)
+    }
+}
+
+final class SmartCleanupCoordinatorTests: XCTestCase {
+    func testOffModeNeverCallsCleaner() async {
+        let cleaner = FakeCleaner()
+        let coordinator = SmartCleanupCoordinator(cleaner: cleaner)
+        let result = await coordinator.clean("some text", mode: .off)
+        XCTAssertNil(result)
+        XCTAssertTrue(cleaner.inputs.isEmpty, "Off must not touch the model layer")
+    }
+
+    func testOversizedInputSkipsCleanup() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "should not be used" }
+        let coordinator = SmartCleanupCoordinator(cleaner: cleaner)
+        let big = String(repeating: "a", count: SmartCleanupCoordinator.maxInputLength + 1)
+        let result = await coordinator.clean(big, mode: .light)
+        XCTAssertNil(result, "inputs above 4,000 characters continue deterministically")
+        XCTAssertTrue(cleaner.inputs.isEmpty)
+    }
+
+    func testDeadlineFallsBackWithoutBlocking() async {
+        let cleaner = FakeCleaner()
+        cleaner.gate = Gate() // never opened during the call
+        let coordinator = SmartCleanupCoordinator(cleaner: cleaner, deadline: .milliseconds(50))
+
+        let start = ContinuousClock.now
+        let result = await coordinator.clean("slow input", mode: .light)
+        let elapsed = ContinuousClock.now - start
+
+        XCTAssertNil(result, "timeout is a soft failure")
+        XCTAssertLessThan(elapsed, .seconds(1), "the deadline must not block on the stuck model call")
+        cleaner.gate?.open() // release the orphaned task
+    }
+
+    func testValidationRejectsGarbageOutput() {
+        let validate = { SmartCleanupCoordinator.validate($0, input: "0123456789") }
+        XCTAssertNil(validate(""), "empty output rejected")
+        XCTAssertNil(validate("   \n  "), "whitespace-only output rejected")
+        XCTAssertNil(validate(String(repeating: "x", count: 15 + 128 + 1)), "oversize output rejected")
+        XCTAssertNil(validate("has a \u{0007} bell"), "control characters rejected")
+        XCTAssertEqual(validate("ok\ttab and\nnewline"), "ok\ttab and\nnewline", "tab and newline allowed")
+        XCTAssertEqual(validate("  trimmed \r\n"), "trimmed", "outer whitespace trimmed, line endings normalized")
+        XCTAssertEqual(validate("line one\r\nline two"), "line one\nline two")
+    }
+
+    func testRejectedOutputFallsBackToOriginal() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "\u{0007}" } // invalid model output
+        let coordinator = SmartCleanupCoordinator(cleaner: cleaner)
+        let result = await coordinator.clean("keep me", mode: .polished)
+        XCTAssertNil(result, "rejection means the original segment is used")
+    }
+}
+
+final class SmartCleanupPipelineTests: XCTestCase {
+    private func pipeline(_ cleaner: FakeCleaner) -> TranscriptPipeline {
+        TranscriptPipeline(cleaner: SmartCleanupCoordinator(cleaner: cleaner, deadline: .milliseconds(200)))
+    }
+
+    func testCleanupThenReplacementMakesConfiguredSpellingAuthoritative() async {
+        // Cross-feature case 1: cleanup produces prose, replacement fixes the term.
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "We use cube control for deployments." }
+        let settings = ProcessingSettings(
+            cleanupMode: .light,
+            replacements: ReplacementMatcher(rules: [("cube control", "kubectl")]),
+            snippets: .empty)
+
+        let result = await pipeline(cleaner).process("um we use uh cube control for deployments", settings: settings)
+        XCTAssertEqual(result.final, "We use kubectl for deployments.")
+        XCTAssertTrue(result.cleanupApplied)
+        XCTAssertEqual(result.raw, "um we use uh cube control for deployments", "raw preserved for recovery")
+    }
+
+    func testSnippetContentBypassesCleanup() async {
+        // Cross-feature case 2: only ordinary segments reach the model.
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "support response", "Secret exact\ncontent ✨")])
+        let cleaner = FakeCleaner()
+        cleaner.transform = { $0.uppercased() }
+        let settings = ProcessingSettings(cleanupMode: .polished, replacements: .empty, snippets: table)
+
+        let result = await pipeline(cleaner).process("please use snippet support response thanks", settings: settings)
+
+        XCTAssertEqual(result.final, "PLEASE USE Secret exact\ncontent ✨ THANKS")
+        for input in cleaner.inputs {
+            XCTAssertFalse(input.contains("Secret"), "snippet content must never enter a model prompt")
+        }
+    }
+
+    func testLiteralEscapeBypassesCleanup() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { $0.uppercased() }
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("say literal new line loudly", settings: settings)
+        XCTAssertEqual(result.final, "SAY new line LOUDLY", "the escaped phrase stays exact")
+    }
+
+    func testCleanupTimeoutStillRendersCommandsReplacementsSnippets() async {
+        // Cross-feature case 5.
+        let id = UUID()
+        let cleaner = FakeCleaner()
+        cleaner.gate = Gate() // cleanup hangs → deadline → deterministic output
+        let settings = ProcessingSettings(
+            cleanupMode: .light,
+            replacements: ReplacementMatcher(rules: [("cube control", "kubectl")]),
+            snippets: SnippetTable(snippets: [(id, "sig", "Cheers, Tim")]))
+
+        let result = await pipeline(cleaner)
+            .process("cube control new line snippet sig", settings: settings)
+
+        XCTAssertEqual(result.final, "kubectl\nCheers, Tim")
+        XCTAssertFalse(result.cleanupApplied)
+        cleaner.gate?.open()
+    }
+
+    func testOffModeNeverTouchesCleaner() async {
+        let cleaner = FakeCleaner()
+        let settings = ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: .empty)
+        _ = await pipeline(cleaner).process("hello there", settings: settings)
+        XCTAssertTrue(cleaner.inputs.isEmpty)
+    }
+}
+
+@MainActor
+final class SmartCleanupControllerTests: XCTestCase {
+    // Cross-feature case 6: pause during cleanup produces no insertion.
+    func testPauseDuringCleanupPreventsInsertion() async {
+        let hotkey = FakeHotkey()
+        let engine = FakeEngine()
+        let inserter = FakeInserter()
+        let cleaner = FakeCleaner()
+        let gate = Gate()
+        cleaner.gate = gate
+        cleaner.transform = { $0 + " cleaned" }
+
+        let controller = DictationController(
+            hotkey: hotkey,
+            recorder: FakeRecorder(),
+            engine: engine,
+            inserter: inserter,
+            statusItem: FakeStatus(),
+            indicator: FakeIndicator(),
+            pipeline: TranscriptPipeline(cleaner: SmartCleanupCoordinator(cleaner: cleaner, deadline: .seconds(5))),
+            processingSettings: { ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty) },
+            playSound: { _ in },
+            frontmostPID: { 42 },
+            onboardingPresenter: { _, _ in }
+        )
+        await controller.initializePipeline()
+
+        controller.beginUtterance()
+        await waitUntil { engine.pendingCount == 1 }
+        controller.endUtterance()
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { !cleaner.inputs.isEmpty } // cleanup is now in flight
+
+        controller.togglePause()
+        gate.open() // cleanup finishes after pause
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(inserter.insertions.isEmpty, "a completion during pause must not insert")
+        XCTAssertEqual(inserter.preserved, ["hello cleaned"],
+                       "the completed transcript is preserved without injection")
+        XCTAssertEqual(controller.volatileStore.current?.raw, "hello",
+                       "raw and final both land in volatile recovery")
+    }
+}

@@ -98,6 +98,11 @@ final class FakeStatus: StatusPresenting {
     var onTogglePause: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenSetup: (() -> Void)?
+    var onCopyLast: (() -> Void)?
+    var onCopyLastRaw: (() -> Void)?
+    var onPasteLast: (() -> Void)?
+    var onClearLast: (() -> Void)?
+    var recoveryState: (() -> RecoveryMenuState)?
     var isPaused = false
     private(set) var states: [AppState] = []
     func setState(_ state: AppState) { states.append(state) }

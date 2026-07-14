@@ -56,7 +56,9 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
         return format
     }
 
-    /// Runs one utterance session: consumes `input` until it finishes, returns the final transcript.
+    /// Runs one utterance session: consumes `input` until it finishes, returns the
+    /// trimmed raw transcript. User-facing postprocessing (commands, replacements,
+    /// snippets, cleanup) is owned by TranscriptPipeline, not the engine.
     func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String {
         let transcriber = makeTranscriber()
         let analyzer = SpeechAnalyzer(
@@ -76,7 +78,6 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
 
         // Input stream finishing (hotkey release) ends analysis; finalize flushes the tail.
         try await analyzer.finalizeAndFinishThroughEndOfInput()
-        return TranscriptPostProcessor.process(
-            try await consumer.value.trimmingCharacters(in: .whitespacesAndNewlines))
+        return try await consumer.value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

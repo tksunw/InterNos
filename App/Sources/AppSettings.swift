@@ -56,6 +56,13 @@ final class AppSettings {
         static let inputDeviceUID = "inputDeviceUID"
         static let playSounds = "playSounds"
         static let checkUpdatesAtLaunch = "checkUpdatesAtLaunch"
+        static let cleanupMode = "cleanupMode"
+    }
+
+    /// Default Off: smart cleanup is opt-in until it clears beta validation.
+    var cleanupMode: CleanupMode {
+        get { CleanupMode(rawValue: defaults.string(forKey: Key.cleanupMode) ?? "") ?? .off }
+        set { defaults.set(newValue.rawValue, forKey: Key.cleanupMode) }
     }
 
     /// Default OFF: the launch check is the app's only automatic network call,

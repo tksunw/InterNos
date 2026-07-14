@@ -28,21 +28,50 @@ The hotkey, activation mode (push-to-talk or toggle), and microphone are configu
 
 ## Spoken commands
 
-Punctuation and capitalization are automatic. On top of that, Internos rewrites a few spoken patterns after transcription (all on-device, same as everything else):
+Punctuation and capitalization are automatic. On top of that, Internos recognizes explicit spoken commands after transcription (all on-device, same as everything else):
 
 | You say | You get |
 |---|---|
+| "new line" | a line break |
+| "new paragraph" | a blank line |
+| "bullet point milk" | `• milk` (each one starts a new line) |
+| "numbered item milk" | `1. milk` (numbers continue; a new paragraph resets to 1) |
+| "open quote … close quote" | `“…”` |
+| "open parenthesis … close parenthesis" | `(…)` |
 | "hashtag yard" | `#yard` |
 | "emoji thumbs up" | 👍 |
-| "at sign" | `@` |
-| "dollar sign" | `$` |
-| "percent sign" | `%` |
+| "at sign" / "dollar sign" / "percent sign" | `@` / `$` / `%` |
+| "snippet calendar link" | your saved snippet, exactly as stored |
+| "literal new line" | the words `new line` (escapes exactly one command) |
 
-Emoji require the spoken word **emoji** before the name, so saying "she sent me a smiley face" stays literal text. Unknown names are left as spoken. The full set of supported names:
+Everyday words never trigger anything — "bulletproof", "newline", and "a parenthetical remark" stay plain text; commands are matched as whole spoken phrases. Emoji require the spoken word **emoji** before the name, so "she sent me a smiley face" stays literal text. Unknown names are left as spoken. The full set of supported names:
 
 smiley face / smiley 🙂 · winking face 😉 · frowning face 🙁 · laughing face 😂 · crying face 😢 · angry face 😠 · thinking face 🤔 · heart eyes 😍 · heart ❤️ · broken heart 💔 · thumbs up 👍 · thumbs down 👎 · fire 🔥 · party popper 🎉 · rocket 🚀 · star ⭐ · check mark ✅ · cross mark ❌ · clapping hands 👏 · eyes 👀 · shrug 🤷 · skull 💀 · hundred 💯 · wave 👋 · sparkles ✨ · sunglasses 😎 · poop 💩
 
-Matching is case-insensitive and keeps trailing punctuation ("emoji thumbs up." becomes "👍."). The table lives in `App/Sources/TranscriptPostProcessor.swift` — PRs adding common names are welcome.
+Matching is case-insensitive and keeps trailing punctuation ("emoji thumbs up." becomes "👍."). The table lives in `App/Sources/TranscriptCommandParser.swift` — PRs adding common names are welcome.
+
+## Personal dictionary and snippets
+
+Settings → Customizations holds two lists, both stored locally in `~/Library/Application Support/<bundle id>/customizations.json`:
+
+- **Replacements** fix words the recognizer consistently gets wrong: say "cube control", get `kubectl`; say "power shell", get `PowerShell`. Matching is case-insensitive and whole-word, and the configured output is typed exactly — it's never re-interpreted as a command or another replacement.
+- **Snippets** insert saved text by voice: say "snippet calendar link" and the stored content (multiline, Unicode, whatever) is inserted verbatim. The `snippet` prefix is required, so just saying the name stays ordinary text. Snippets are static text only — no variables, scripts, or lookups — and the settings window will remind you they're stored as plain text, so keep passwords out of them.
+
+Both lists support search, enable/disable, and JSON import/export (Merge or Replace) from the same settings pane.
+
+## Smart cleanup (optional, on-device)
+
+Settings → Processing offers an optional cleanup pass powered by Apple's on-device Foundation Models (the Apple Intelligence local LLM — nothing leaves the Mac):
+
+- **Off** (default) — exactly what you said, plus your commands and replacements.
+- **Light** — removes "um"/"uh", accidental repetition, and false starts, and applies self-corrections ("Tuesday, actually Wednesday" → "Wednesday").
+- **Polished** — Light, plus smoothing fragments into readable prose.
+
+Cleanup is bounded (two-second deadline, 4,000-character cap) and always fails back to the deterministic text — a model hiccup can never eat your dictation. Snippet contents and replacement outputs never enter the model prompt. Requires an Apple-Intelligence-eligible Mac; without one, Light and Polished show as unavailable and plain dictation is unaffected.
+
+## Last dictation recovery
+
+The menu bar keeps your most recent transcript in memory (never on disk): **Copy Last Dictation**, **Paste Last Dictation** (into the app you were just using, with the same Secure-Input and focus checks as live dictation), **Copy Last Raw Dictation** (when smart cleanup changed the text), and **Clear Last Dictation**. Quitting Internos clears it — this is a recovery buffer, not a history.
 
 ## Updates
 

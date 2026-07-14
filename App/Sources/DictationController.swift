@@ -33,11 +33,22 @@ final class DictationController {
     private let inserter: any TextInserting
     private let statusItem: any StatusPresenting
     private let indicator: any IndicatorPresenting
+    private let pipeline: any TranscriptProcessing
+    /// Shared with the Settings window; nil in tests that inject processingSettings.
+    private let customizations: CustomizationStore?
+    private let processingSettings: @MainActor () -> ProcessingSettings
     private let playSound: @MainActor (String) -> Void
     private let frontmostPID: @MainActor () -> pid_t?
     private let onboardingPresenter: (@MainActor (_ needsRestart: Bool, _ onFinished: @escaping () -> Void) -> Void)?
     private lazy var settingsWindow = SettingsWindowController()
     private lazy var onboarding = OnboardingWindowController()
+
+    /// Last completed transcript, memory only (feature 2). Never persisted.
+    let volatileStore = VolatileTranscriptStore()
+    /// Most recent frontmost app that isn't Internos: the target for Paste Last
+    /// Dictation, so opening the status menu can't redirect the paste to us.
+    var lastExternalFrontmostPID: pid_t?
+    private var workspaceObserver: NSObjectProtocol?
 
     private(set) var state: State = .settingUp
     private var analyzerFormat: AVAudioFormat?
@@ -59,6 +70,10 @@ final class DictationController {
         inserter: any TextInserting = TextInserter(),
         statusItem: any StatusPresenting = StatusItemController(),
         indicator: any IndicatorPresenting = RecordingIndicator(),
+        pipeline: any TranscriptProcessing = TranscriptPipeline(
+            cleaner: SmartCleanupCoordinator(cleaner: FoundationModelCleaner())),
+        customizations: CustomizationStore? = nil,
+        processingSettings: (@MainActor () -> ProcessingSettings)? = nil,
         playSound: (@MainActor (String) -> Void)? = nil,
         frontmostPID: (@MainActor () -> pid_t?)? = nil,
         onboardingPresenter: (@MainActor (Bool, @escaping () -> Void) -> Void)? = nil
@@ -69,6 +84,14 @@ final class DictationController {
         self.inserter = inserter
         self.statusItem = statusItem
         self.indicator = indicator
+        self.pipeline = pipeline
+        // Tests inject processingSettings; the app snapshots the live store + mode.
+        let store = customizations
+        self.customizations = store
+        self.processingSettings = processingSettings ?? {
+            guard let store else { return ProcessingSettings() }
+            return store.processingSnapshot(cleanupMode: AppSettings.shared.cleanupMode)
+        }
         self.playSound = playSound ?? { name in
             guard AppSettings.shared.playSounds else { return }
             NSSound(named: name)?.play()
@@ -81,6 +104,17 @@ final class DictationController {
         statusItem.onTogglePause = { [weak self] in self?.togglePause() }
         statusItem.onOpenSettings = { [weak self] in self?.openSettings() }
         statusItem.onOpenSetup = { [weak self] in self?.showOnboarding() }
+        statusItem.onCopyLast = { [weak self] in self?.copyLastDictation(raw: false) }
+        statusItem.onCopyLastRaw = { [weak self] in self?.copyLastDictation(raw: true) }
+        statusItem.onPasteLast = { [weak self] in self?.pasteLastDictation() }
+        statusItem.onClearLast = { [weak self] in self?.volatileStore.clear() }
+        statusItem.recoveryState = { [weak self] in
+            guard let value = self?.volatileStore.current else { return RecoveryMenuState() }
+            return RecoveryMenuState(
+                hasTranscript: true,
+                hasDistinctRaw: value.cleanupApplied && value.raw != value.final)
+        }
+        trackExternalFrontmostApplication()
         // Delivered on the main thread by AudioRecorder; assumeIsolated satisfies Swift 6.
         recorder.onLevel = { [weak self] level in
             MainActor.assumeIsolated { self?.indicator.pushLevel(level) }
@@ -208,9 +242,60 @@ final class DictationController {
     }
 
     private func openSettings() {
-        settingsWindow.show { [weak self] in
+        guard let customizations else { return }
+        settingsWindow.show(customizations: customizations) { [weak self] in
             self?.hotkey.reloadSettings()
             self?.statusItem.refreshHotkeyHint()
+        }
+    }
+
+    // MARK: - last-transcript recovery (feature 2)
+
+    /// Tracks the most recent frontmost application that isn't Internos, via
+    /// workspace activation notifications. Status-menu clicks must not make
+    /// Internos the paste target.
+    private func trackExternalFrontmostApplication() {
+        if let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            lastExternalFrontmostPID = frontmost.processIdentifier
+        }
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            let pid = app.processIdentifier
+            Task { @MainActor [weak self] in self?.lastExternalFrontmostPID = pid }
+        }
+    }
+
+    /// Intentional clipboard operation: replaces the pasteboard, restores nothing.
+    private func copyLastDictation(raw: Bool) {
+        guard let value = volatileStore.current else { return }
+        inserter.preserveOnClipboard(raw ? value.raw : value.final)
+        NSLog("Internos: last dictation copied (\(raw ? "raw" : "final"))")
+    }
+
+    /// User-initiated re-insertion of the stored final value: same serialized
+    /// inserter, same Secure Input/Accessibility/target checks, no reprocessing,
+    /// and the stored value is kept regardless of outcome.
+    func pasteLastDictation() {
+        guard let value = volatileStore.current else { return }
+        let target = lastExternalFrontmostPID
+        let epoch = pauseEpoch
+        let previous = insertionChain
+        insertionChain = Task { [weak self] in
+            await previous?.value
+            guard let self, self.pauseEpoch == epoch else { return }
+            do {
+                try self.inserter.insert(value.final, target: target)
+                NSLog("Internos: last dictation pasted")
+                self.playSound("Purr")
+            } catch {
+                self.handleInsertionFailure(error, transcript: value.final)
+                self.statusItem.setState(.error)
+                self.playSound("Basso")
+            }
         }
     }
 
@@ -254,24 +339,33 @@ final class DictationController {
         let epoch = pauseEpoch
         // The app under the cursor right now is the authoritative paste target (IR-003).
         let target = frontmostPID()
+        // Snapshot processing configuration now so a settings edit can't change
+        // this transcript halfway through the pipeline.
+        let settings = processingSettings()
         let previous = insertionChain
-        insertionChain = Task { [weak self] in
+        insertionChain = Task { [weak self, pipeline] in
             // FIFO: utterance N inserts only after N-1 fully completed, even if N's
             // transcription finished first (IR-001).
             await previous?.value
-            let result: Result<String, Error>
-            do { result = .success(try await task.value) } catch { result = .failure(error) }
+            let result: Result<TranscriptResult, Error>
+            do {
+                let raw = try await task.value
+                result = .success(await pipeline.process(raw, settings: settings))
+            } catch {
+                result = .failure(error)
+            }
             self?.completeUtterance(gen: gen, epoch: epoch, target: target, result: result)
         }
     }
 
-    private func completeUtterance(gen: Int, epoch: Int, target: pid_t?, result: Result<String, Error>) {
+    private func completeUtterance(gen: Int, epoch: Int, target: pid_t?, result: Result<TranscriptResult, Error>) {
         guard epoch == pauseEpoch else {
             // Paused (or paused-and-resumed) after this utterance was captured: never
             // insert (IR-004). A transcript that completed anyway is preserved on the
             // clipboard — without injection and without touching the paused UI.
-            if case .success(let transcript) = result, !transcript.isEmpty {
-                inserter.preserveOnClipboard(transcript)
+            if case .success(let transcript) = result, !transcript.final.isEmpty {
+                volatileStore.record(raw: transcript.raw, final: transcript.final, cleanupApplied: transcript.cleanupApplied)
+                inserter.preserveOnClipboard(transcript.final)
                 NSLog("Internos: canceled by pause — transcript preserved on clipboard, not inserted")
             }
             return
@@ -288,19 +382,22 @@ final class DictationController {
         }
 
         switch result {
-        case .success(let transcript) where transcript.isEmpty:
+        case .success(let transcript) where transcript.final.isEmpty:
             NSLog("Internos: empty transcript")
             updateUI(.error, "Basso")
         case .success(let transcript):
             // Log length only — never the content. Writing transcripts to the unified
             // log (persistent, readable) would contradict the app's whole premise.
-            NSLog("Internos: transcript finalized (\(transcript.count) chars)")
+            NSLog("Internos: transcript finalized (\(transcript.final.count) chars, cleanup: \(transcript.cleanupApplied))")
+            // Recorded before the first insertion attempt (feature 2): every failure
+            // path below still leaves the transcript recoverable from the menu.
+            volatileStore.record(raw: transcript.raw, final: transcript.final, cleanupApplied: transcript.cleanupApplied)
             do {
-                try inserter.insert(transcript, target: target)
+                try inserter.insert(transcript.final, target: target)
                 NSLog("Internos: inserted")
                 updateUI(.idle, "Purr")
             } catch {
-                handleInsertionFailure(error, transcript: transcript)
+                handleInsertionFailure(error, transcript: transcript.final)
                 updateUI(.error, "Basso")
             }
         case .failure(let error):

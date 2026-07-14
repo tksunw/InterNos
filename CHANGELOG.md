@@ -4,6 +4,31 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-07-14
+
+### Added
+- Personal dictionary: configurable spoken-phrase replacements ("cube control" →
+  `kubectl`), matched whole-word and case-insensitively, output typed exactly as
+  configured. Managed in Settings → Customizations with search, enable/disable,
+  and JSON import/export (Merge or Replace).
+- Voice-triggered snippets: "snippet <name>" inserts saved text verbatim
+  (multiline and Unicode safe, 16 KB limit, static text only).
+- Structured voice commands: "new line", "new paragraph", "bullet point",
+  "numbered item" (with automatic numbering and paragraph resets), "open/close
+  quote", "open/close parenthesis", and a "literal" escape that keeps the next
+  command as plain words.
+- Optional on-device smart cleanup (Settings → Processing; off by default):
+  Light removes filler, repetitions, false starts, and applies self-corrections;
+  Polished also smooths fragments into prose. Runs entirely on-device via Apple
+  Intelligence (Foundation Models), bounded by a two-second deadline and output
+  validation, and always falls back to the deterministic transcript. Requires an
+  Apple-Intelligence-eligible Mac.
+- Last-dictation recovery in the menu bar: Copy, Paste (into the app you were
+  just using, with the usual Secure Input and focus checks), Copy Raw (when
+  cleanup changed the text), and Clear. Held in memory only; quitting clears it.
+- Settings window rebuilt as a resizable General / Processing / Customizations
+  layout, including a spoken-command reference.
+
 ## [1.1.0] - 2026-07-14
 
 ### Fixed
@@ -140,6 +165,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[1.2.0]: https://github.com/tksunw/InterNos/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/tksunw/InterNos/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/tksunw/InterNos/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/tksunw/InterNos/compare/v1.0.6...v1.0.7

@@ -24,9 +24,15 @@ func waitUntil(
 final class FakeHotkey: HotkeyMonitoring {
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
+    var onSecondaryDown: (() -> Void)?
+    var onSecondaryUp: (() -> Void)?
     var startResult = true
+    private(set) var startCount = 0
     private(set) var reloadCount = 0
-    func start() -> Bool { startResult }
+    func start() -> Bool {
+        startCount += 1
+        return startResult
+    }
     func reloadSettings() { reloadCount += 1 }
 }
 
@@ -64,14 +70,28 @@ final class FakeEngine: TranscriptionProviding, @unchecked Sendable {
         AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
     }
 
-    func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String {
+    /// Latest onPartial callbacks, keyed by call index, so tests can emit previews.
+    private var partialHandlers: [Int: @Sendable (String) -> Void] = [:]
+
+    func transcribe(
+        input: AsyncStream<AnalyzerInput>,
+        format: AVAudioFormat,
+        onPartial: (@Sendable (String) -> Void)?
+    ) async throws -> String {
         let index: Int = lock.withLock {
             callIndex += 1
+            if let onPartial { partialHandlers[callIndex] = onPartial }
             return callIndex
         }
         return try await withCheckedThrowingContinuation { continuation in
             lock.withLock { pending[index] = continuation }
         }
+    }
+
+    /// Simulates a volatile/partial recognition result for the `index`-th utterance.
+    func emitPartial(_ index: Int, text: String) {
+        let handler = lock.withLock { partialHandlers[index] }
+        handler?(text)
     }
 
     /// Completes the `index`-th transcription (1-based, in start order).
@@ -84,12 +104,23 @@ final class FakeEngine: TranscriptionProviding, @unchecked Sendable {
 @MainActor
 final class FakeInserter: TextInserting {
     private(set) var insertions: [(text: String, target: pid_t?)] = []
+    private(set) var deletions: [(count: Int, target: pid_t?)] = []
     private(set) var preserved: [String] = []
     var errorToThrow: Error?
-    func insert(_ text: String, target: pid_t?) throws {
+    var methodToReport: InsertionMethod = .accessibility
+
+    @discardableResult
+    func insert(_ text: String, target: pid_t?) throws -> InsertionMethod {
         if let errorToThrow { throw errorToThrow }
         insertions.append((text, target))
+        return methodToReport
     }
+
+    func deleteBackward(_ characterCount: Int, target: pid_t?) throws {
+        if let errorToThrow { throw errorToThrow }
+        deletions.append((characterCount, target))
+    }
+
     func preserveOnClipboard(_ text: String) { preserved.append(text) }
 }
 
@@ -113,9 +144,11 @@ final class FakeStatus: StatusPresenting {
 final class FakeIndicator: IndicatorPresenting {
     private(set) var shown: [IndicatorState] = []
     private(set) var hideCount = 0
+    private(set) var partials: [String] = []
     func show(_ state: IndicatorState) { shown.append(state) }
     func hide() { hideCount += 1 }
     func pushLevel(_ level: CGFloat) {}
+    func showPartial(_ text: String) { partials.append(text) }
 }
 
 // MARK: - TextInserter dependencies

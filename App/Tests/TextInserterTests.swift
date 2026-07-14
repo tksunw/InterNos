@@ -10,26 +10,36 @@ final class TextInserterTests: XCTestCase {
     private var pasteboard = FakePasteboard()
     private var scheduled: [DispatchWorkItem] = []
     private var pastesPosted = 0
+    private var axInsertions: [(text: String, pid: pid_t)] = []
+    private var backspacesPosted: [Int] = []
 
     private func makeInserter(
         secureInput: Bool = false,
         accessibility: Bool = true,
         frontmost: @escaping () -> pid_t? = { 42 },
+        axSucceeds: Bool = false,
         postPasteError: Error? = nil
     ) -> TextInserter {
         pasteboard = FakePasteboard()
         scheduled = []
         pastesPosted = 0
+        axInsertions = []
+        backspacesPosted = []
         return TextInserter(
             pasteboard: pasteboard,
             scheduleRestore: { [self] work in scheduled.append(work) },
             secureInputActive: { secureInput },
             accessibilityGranted: { accessibility },
             frontmostPID: frontmost,
+            axInsert: { [self] text, pid in
+                if axSucceeds { axInsertions.append((text, pid)) }
+                return axSucceeds
+            },
             postPaste: { [self] in
                 if let postPasteError { throw postPasteError }
                 pastesPosted += 1
-            }
+            },
+            postBackspaces: { [self] count in backspacesPosted.append(count) }
         )
     }
 
@@ -116,6 +126,61 @@ final class TextInserterTests: XCTestCase {
         try inserter.insert("transcript", target: 42)
         XCTAssertNotNil(pasteboard.items.first?[.transientMarker])
         XCTAssertNotNil(pasteboard.items.first?[.concealedMarker])
+    }
+
+    // MARK: v2 — Accessibility-direct path
+
+    func testAXSuccessSkipsPasteboardEntirely() throws {
+        let inserter = makeInserter(axSucceeds: true)
+        pasteboard.userCopy("untouched")
+        let method = try inserter.insert("transcript", target: 42)
+
+        XCTAssertEqual(method, .accessibility)
+        XCTAssertEqual(axInsertions.map(\.text), ["transcript"])
+        XCTAssertEqual(axInsertions.first?.pid, 42)
+        XCTAssertEqual(pasteboard.stringContents, "untouched", "AX insertion must not touch the pasteboard")
+        XCTAssertEqual(pastesPosted, 0, "no synthetic paste on the AX path")
+        XCTAssertTrue(scheduled.isEmpty, "no restore to schedule — nothing was swapped")
+    }
+
+    func testAXFailureFallsBackToClipboardSwap() throws {
+        let inserter = makeInserter(axSucceeds: false)
+        pasteboard.userCopy("original")
+        let method = try inserter.insert("transcript", target: 42)
+
+        XCTAssertEqual(method, .clipboard)
+        XCTAssertEqual(pastesPosted, 1)
+        runPendingRestore()
+        XCTAssertEqual(pasteboard.stringContents, "original")
+    }
+
+    func testAXPathStillRunsPreflightChecks() {
+        let inserter = makeInserter(secureInput: true, axSucceeds: true)
+        XCTAssertThrowsError(try inserter.insert("x", target: 42))
+        XCTAssertTrue(axInsertions.isEmpty, "Secure Input blocks the AX path too")
+    }
+
+    // MARK: v2 — deleteBackward (scratch that)
+
+    func testDeleteBackwardPostsBackspaces() throws {
+        let inserter = makeInserter()
+        try inserter.deleteBackward(11, target: 42)
+        XCTAssertEqual(backspacesPosted, [11])
+    }
+
+    func testDeleteBackwardRefusesOnTargetMismatch() {
+        let inserter = makeInserter(frontmost: { 99 })
+        XCTAssertThrowsError(try inserter.deleteBackward(5, target: 42)) { error in
+            XCTAssertEqual(error as? InternosError, .insertionTargetChanged)
+        }
+        XCTAssertTrue(backspacesPosted.isEmpty)
+    }
+
+    func testDeleteBackwardRespectsSecureInput() {
+        let inserter = makeInserter(secureInput: true)
+        XCTAssertThrowsError(try inserter.deleteBackward(5, target: 42)) { error in
+            XCTAssertEqual(error as? InternosError, .secureInputActive)
+        }
     }
 
     // MARK: IR-003 — target verification

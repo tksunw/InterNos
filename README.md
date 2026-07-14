@@ -69,6 +69,16 @@ Settings → Processing offers an optional cleanup pass powered by Apple's on-de
 
 Cleanup is bounded (two-second deadline, 4,000-character cap) and always fails back to the deterministic text — a model hiccup can never eat your dictation. Snippet contents and replacement outputs never enter the model prompt. Requires an Apple-Intelligence-eligible Mac; without one, Light and Polished show as unavailable and plain dictation is unaffected.
 
+## Command mode (v2)
+
+Select text anywhere, hold the **command key** (default Right Command, configurable), speak an instruction — "fix the spelling", "make this friendlier", "turn this into bullet points" — and release. The selection is rewritten in place by Apple Intelligence's on-device model. Nothing leaves the Mac; the selection is read only at the moment you press the command key, never in the background. Any failure (no Apple Intelligence, timeout, model refusal) changes nothing — your selection stays exactly as it was. The original text is recoverable from **Copy Last Raw Dictation** after a rewrite.
+
+## Live preview, scratch that, and languages (v2)
+
+- **Live preview** — the floating indicator shows your words as they're recognized, while you're still speaking.
+- **"Scratch that"** — say it as its own utterance to delete your previous dictation (or command-mode rewrite). One level, same app only.
+- **Languages** — Settings → Language lists every locale the on-device recognizer supports; switching may trigger a one-time system model download. Spoken commands (new line, snippet, emoji names) remain English for now; your replacements and snippets work in any language.
+
 ## Last dictation recovery
 
 The menu bar keeps your most recent transcript in memory (never on disk): **Copy Last Dictation**, **Paste Last Dictation** (into the app you were just using, with the same Secure-Input and focus checks as live dictation), **Copy Last Raw Dictation** (when smart cleanup changed the text), and **Clear Last Dictation**. Quitting Internos clears it — this is a recovery buffer, not a history.
@@ -83,7 +93,7 @@ Three stages, all local:
 
 1. **Capture** — `AVAudioEngine` mic tap, converted to the analyzer's native format (16 kHz mono)
 2. **Transcribe** — Apple's `SpeechAnalyzer` + `SpeechTranscriber` (the same on-device engine behind system dictation, exposed as API in macOS 26)
-3. **Insert** — clipboard swap with a synthetic ⌘V, then your original clipboard is restored (only if you haven't copied something new in the meantime — a fresh copy always wins)
+3. **Insert** — directly into the focused text field via the Accessibility API where the app supports it (the transcript never touches the clipboard at all); otherwise a clipboard swap with a synthetic ⌘V, after which your original clipboard is restored (only if you haven't copied something new in the meantime — a fresh copy always wins)
 
 Measured release-to-inserted-text latency: well under half a second for typical utterances.
 
@@ -93,7 +103,7 @@ If a password field has focus (macOS Secure Input), Internos refuses to inject a
 
 - No network calls in the transcription path — verifiable with Little Snitch or any packet monitor; your audio never leaves the Mac
 - No accounts, no telemetry, no transcript storage; settings are the only persisted state
-- Insertion briefly places the transcript on the general pasteboard. macOS services like Universal Clipboard, and any installed clipboard manager, may observe or sync pasteboard contents — that's outside Internos's control. Internos marks the entry with the standard transient/concealed pasteboard types, which well-behaved clipboard managers honor (not guaranteed for all)
+- Insertion prefers the Accessibility API, which bypasses the clipboard entirely. When an app doesn't support it, the fallback briefly places the transcript on the general pasteboard, where macOS services like Universal Clipboard and installed clipboard managers may observe or sync it — that's outside Internos's control. Internos marks the entry with the standard transient/concealed pasteboard types, which well-behaved clipboard managers honor (not guaranteed for all)
 - The speech model is downloaded once by macOS itself (Apple's asset CDN) and shared system-wide
 
 Full policy: [PRIVACY.md](PRIVACY.md).

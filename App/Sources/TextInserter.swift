@@ -1,13 +1,21 @@
-// Clipboard-swap insertion: save pasteboard → set transcript → synthetic ⌘V → restore.
-// Both insertion paths end in a synthesized keystroke, so BOTH are blocked by Secure
-// Input (PRD F4a): preflight IsSecureEventInputEnabled() and fail loud, never silently.
-// Posting the keystroke requires Accessibility.
-//
-// The restore is conditional (IR-002): the snapshot goes back only while the pasteboard
-// still holds our injected transcript. Anything the user copies in the window wins.
+// Text insertion, two paths (v2):
+//   1. Accessibility-direct: set kAXSelectedTextAttribute on the focused element —
+//      inserts at the cursor (or replaces the selection) WITHOUT touching the
+//      pasteboard. Preferred: no clipboard exposure at all.
+//   2. Clipboard swap fallback: save pasteboard → set transcript → synthetic ⌘V →
+//      conditional restore (IR-002: the snapshot goes back only while the pasteboard
+//      still holds our injected transcript; anything the user copies wins).
+// Secure Input blocks both paths by policy (PRD F4a): preflight
+// IsSecureEventInputEnabled() and fail loud, never silently. Both need Accessibility.
 
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
+
+enum InsertionMethod {
+    case accessibility
+    case clipboard
+}
 
 /// Controller-facing seam so lifecycle tests can observe insertions deterministically.
 @MainActor
@@ -15,7 +23,13 @@ protocol TextInserting: AnyObject {
     /// Inserts `text` at the cursor of the frontmost app, but only if the app with
     /// process id `target` is still frontmost. Throws on Secure Input, missing
     /// Accessibility, a changed/missing target, or paste-event construction failure.
-    func insert(_ text: String, target: pid_t?) throws
+    /// Returns which path delivered the text.
+    @discardableResult
+    func insert(_ text: String, target: pid_t?) throws -> InsertionMethod
+
+    /// Deletes the last `characterCount` characters at the cursor of `target` by
+    /// synthesizing backspaces ("scratch that", v2). Same preflight rules as insert.
+    func deleteBackward(_ characterCount: Int, target: pid_t?) throws
 
     /// Leaves `text` on the pasteboard without injecting it (failure paths: the
     /// transcript must never be silently lost). Cancels any pending restore that
@@ -87,7 +101,9 @@ final class TextInserter: TextInserting {
     private let secureInputActive: () -> Bool
     private let accessibilityGranted: () -> Bool
     private let frontmostPID: () -> pid_t?
+    private let axInsert: (String, pid_t) -> Bool
     private let postPaste: () throws -> Void
+    private let postBackspaces: (Int) throws -> Void
 
     init(
         pasteboard: any PasteboardProviding = NSPasteboard.general,
@@ -99,14 +115,18 @@ final class TextInserter: TextInserting {
         secureInputActive: @escaping () -> Bool = { IsSecureEventInputEnabled() },
         accessibilityGranted: @escaping () -> Bool = { TextInserter.checkAccessibility(promptIfNeeded: false) },
         frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
-        postPaste: @escaping () throws -> Void = { try TextInserter.postCommandV() }
+        axInsert: @escaping (String, pid_t) -> Bool = { TextInserter.accessibilityInsert($0, targetPID: $1) },
+        postPaste: @escaping () throws -> Void = { try TextInserter.postCommandV() },
+        postBackspaces: @escaping (Int) throws -> Void = { try TextInserter.postBackspaces($0) }
     ) {
         self.pasteboard = pasteboard
         self.scheduleRestore = scheduleRestore
         self.secureInputActive = secureInputActive
         self.accessibilityGranted = accessibilityGranted
         self.frontmostPID = frontmostPID
+        self.axInsert = axInsert
         self.postPaste = postPaste
+        self.postBackspaces = postBackspaces
     }
 
     static func checkAccessibility(promptIfNeeded: Bool) -> Bool {
@@ -118,7 +138,8 @@ final class TextInserter: TextInserting {
         return AXIsProcessTrusted()
     }
 
-    func insert(_ text: String, target: pid_t?) throws {
+    @discardableResult
+    func insert(_ text: String, target: pid_t?) throws -> InsertionMethod {
         guard !secureInputActive() else {
             // A password field has focus, or a background app has Secure Input stuck on.
             throw InternosError.secureInputActive
@@ -131,6 +152,14 @@ final class TextInserter: TextInserting {
         // A missing or exited target counts as a mismatch.
         guard let target, let current = frontmostPID(), current == target else {
             throw InternosError.insertionTargetChanged
+        }
+
+        // Preferred path: Accessibility-direct insertion. The transcript never touches
+        // the pasteboard, so Universal Clipboard and clipboard managers never see it.
+        // An AX success report is trusted (no fallback paste — that would risk a
+        // double insertion); the volatile recovery buffer covers a lying app.
+        if axInsert(text, target) {
+            return .accessibility
         }
 
         flushPendingRestore()
@@ -149,6 +178,17 @@ final class TextInserter: TextInserting {
         }
         pendingRestore = PendingRestore(id: id, items: saved, injectedChangeCount: injected, work: work)
         scheduleRestore(work)
+        return .clipboard
+    }
+
+    func deleteBackward(_ characterCount: Int, target: pid_t?) throws {
+        guard characterCount > 0 else { return }
+        guard !secureInputActive() else { throw InternosError.secureInputActive }
+        guard accessibilityGranted() else { throw InternosError.accessibilityNotGranted }
+        guard let target, let current = frontmostPID(), current == target else {
+            throw InternosError.insertionTargetChanged
+        }
+        try postBackspaces(characterCount)
     }
 
     func preserveOnClipboard(_ text: String) {
@@ -206,5 +246,66 @@ final class TextInserter: TextInserting {
         keyUp.flags = .maskCommand
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+    }
+
+    static func postBackspaces(_ count: Int) throws {
+        let deleteKey = CGKeyCode(kVK_Delete)
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for _ in 0..<count {
+            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: false) else {
+                throw InternosError.pasteEventFailed
+            }
+            keyDown.post(tap: .cghidEventTap)
+            keyUp.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the focused
+    /// element, which inserts at the caret or replaces the current selection.
+    /// Returns false when the focused element belongs to a different process, or
+    /// doesn't support settable selected text (web areas in some apps, terminals) —
+    /// the caller falls back to the clipboard swap.
+    static func accessibilityInsert(_ text: String, targetPID: pid_t) -> Bool {
+        var focusedRef: CFTypeRef?
+        let systemWide = AXUIElementCreateSystemWide()
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
+            return false
+        }
+        let element = unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
+
+        var elementPID: pid_t = 0
+        guard AXUIElementGetPid(element, &elementPID) == .success, elementPID == targetPID else {
+            return false
+        }
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
+              settable.boolValue else {
+            return false
+        }
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
+    }
+
+    /// Reads the selected text of the focused element (command mode). Called only on
+    /// an explicit user invocation — never for ambient context. Returns nil when
+    /// nothing is selected or the element doesn't expose a selection.
+    static func accessibilitySelectedText() -> (text: String, pid: pid_t)? {
+        var focusedRef: CFTypeRef?
+        let systemWide = AXUIElementCreateSystemWide()
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        let element = unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
+
+        var elementPID: pid_t = 0
+        guard AXUIElementGetPid(element, &elementPID) == .success else { return nil }
+        var selectedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedRef) == .success,
+              let selected = selectedRef as? String, !selected.isEmpty else {
+            return nil
+        }
+        return (selected, elementPID)
     }
 }

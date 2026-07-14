@@ -197,7 +197,8 @@ struct OnboardingView: View {
             HStack {
                 statusIcon(done: model.modelInstalled)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Speech model (English, US)").font(.body.weight(.medium))
+                    Text("Speech model (\(Locale.current.localizedString(forIdentifier: AppSettings.shared.recognitionLocale) ?? "English (US)"))")
+                        .font(.body.weight(.medium))
                     switch model.modelState {
                     case .downloading:
                         ProgressView(value: model.downloadProgress)

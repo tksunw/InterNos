@@ -4,6 +4,28 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Command mode: select text anywhere, hold the command key (default Right
+  Command, configurable), speak an instruction, release — the selection is
+  rewritten in place by the on-device Apple Intelligence model. The selection
+  is read only at the moment of invocation; any failure leaves it untouched,
+  and the original text is recoverable via Copy Last Raw Dictation.
+- Live transcript preview: the floating indicator shows your words as they're
+  recognized, while you're still speaking.
+- "Scratch that": say it as its own utterance to delete the previous dictation
+  or command-mode rewrite (one level, same app only).
+- Recognition languages: Settings → Language lists every locale the on-device
+  recognizer supports; switching may trigger a one-time system model download.
+  Spoken commands remain English for now.
+
+### Changed
+- Insertion now prefers the Accessibility API, placing text directly into the
+  focused field. On that path the transcript never touches the clipboard; the
+  clipboard swap remains only as a fallback for apps without Accessibility
+  text support.
+
 ## [1.2.0] - 2026-07-14
 
 ### Added

@@ -71,9 +71,16 @@ struct VoicePrintView: View {
     }
 }
 
+/// Rolling live-preview text, newest words visible (head-truncated).
+@MainActor
+final class PreviewModel: ObservableObject {
+    @Published var text = ""
+}
+
 struct RecordingIndicatorView: View {
     let state: IndicatorState
     @ObservedObject var meter: LevelMeter
+    @ObservedObject var preview: PreviewModel
 
     var body: some View {
         ZStack {
@@ -85,9 +92,20 @@ struct RecordingIndicatorView: View {
 
             switch state {
             case .recording:
-                VoicePrintView(meter: meter)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                VStack(spacing: 5) {
+                    VoicePrintView(meter: meter)
+                        .frame(height: 28)
+                    // Live preview: single line, head-truncated so the newest words
+                    // stay visible while speaking. Empty until recognition starts.
+                    Text(preview.text.isEmpty ? " " : preview.text)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             case .transcribing:
                 HStack(spacing: 9) {
                     ProgressView().controlSize(.small).scaleEffect(0.75).frame(width: 10, height: 10)
@@ -99,7 +117,7 @@ struct RecordingIndicatorView: View {
                 EmptyView()
             }
         }
-        .frame(width: 216, height: 54)
+        .frame(width: 260, height: state == .recording ? 70 : 54)
     }
 }
 
@@ -109,32 +127,42 @@ protocol IndicatorPresenting: AnyObject {
     func show(_ state: IndicatorState)
     func hide()
     func pushLevel(_ level: CGFloat)
+    /// Live transcript preview while recording (v2): the accumulated recognized
+    /// text so far. Display only — never logged, never persisted.
+    func showPartial(_ text: String)
 }
 
 @MainActor
 final class RecordingIndicator: IndicatorPresenting {
     private var panel: NSPanel?
     private let meter = LevelMeter()
+    private let preview = PreviewModel()
     private lazy var hosting = NSHostingController(
-        rootView: RecordingIndicatorView(state: .hidden, meter: meter))
+        rootView: RecordingIndicatorView(state: .hidden, meter: meter, preview: preview))
 
     /// Feed a live input level (0...1) from the capture tap.
     func pushLevel(_ level: CGFloat) { meter.push(level) }
 
+    func showPartial(_ text: String) { preview.text = text }
+
     func show(_ state: IndicatorState) {
         guard state != .hidden else { hide(); return }
-        if state == .recording { meter.reset() }
-        hosting.rootView = RecordingIndicatorView(state: state, meter: meter)
+        if state == .recording {
+            meter.reset()
+            preview.text = ""
+        }
+        hosting.rootView = RecordingIndicatorView(state: state, meter: meter, preview: preview)
 
         let panel = panel ?? makePanel()
         self.panel = panel
-        position(panel)
+        position(panel, height: state == .recording ? 70 : 54)
         panel.orderFrontRegardless() // never makeKey — must not take focus from the target app
     }
 
     func hide() {
         panel?.orderOut(nil)
         meter.reset()
+        preview.text = ""
     }
 
     private func makePanel() -> NSPanel {
@@ -156,8 +184,8 @@ final class RecordingIndicator: IndicatorPresenting {
         return panel
     }
 
-    private func position(_ panel: NSPanel) {
-        let size = NSSize(width: 216, height: 54)
+    private func position(_ panel: NSPanel, height: CGFloat) {
+        let size = NSSize(width: 260, height: height)
         panel.setContentSize(size)
         // Bottom-center of the screen under the cursor (or main screen), above the Dock.
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main

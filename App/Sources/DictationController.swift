@@ -22,6 +22,8 @@ final class DictationController {
         case settingUp
         case idle
         case recording
+        /// Command mode (v2): recording a spoken instruction for the captured selection.
+        case commandRecording
         case finalizing
         case paused
         case setupFailed
@@ -40,11 +42,23 @@ final class DictationController {
     private let playSound: @MainActor (String) -> Void
     private let frontmostPID: @MainActor () -> pid_t?
     private let onboardingPresenter: (@MainActor (_ needsRestart: Bool, _ onFinished: @escaping () -> Void) -> Void)?
+    // Command mode (v2): selection capture, on-device transform, availability check.
+    private let transformer: any TextTransforming
+    private let selectionProvider: @MainActor () -> (text: String, pid: pid_t)?
+    private let commandModeAvailable: @MainActor () -> Bool
+    /// Selection captured when the command key went down; consumed on completion.
+    private var commandContext: (selection: String, target: pid_t)?
     private lazy var settingsWindow = SettingsWindowController()
     private lazy var onboarding = OnboardingWindowController()
 
     /// Last completed transcript, memory only (feature 2). Never persisted.
     let volatileStore = VolatileTranscriptStore()
+    /// Last successful insertion, for the "scratch that" voice undo (v2).
+    /// One-shot: consumed by a scratch, replaced by the next insertion.
+    private(set) var lastInsertion: (characterCount: Int, target: pid_t?)?
+    /// ponytail: backspace-count cap for scratch-that; per-character key events get
+    /// slow past this. Raise if long-dictation scratching turns out to matter.
+    static let maxScratchCharacters = 2000
     /// Most recent frontmost app that isn't Internos: the target for Paste Last
     /// Dictation, so opening the status menu can't redirect the paste to us.
     var lastExternalFrontmostPID: pid_t?
@@ -62,6 +76,10 @@ final class DictationController {
     private var insertionChain: Task<Void, Never>?
     private var pipelineReady = false
     private var tapFailed = false
+    // The tap survives locale re-initialization; it must be created only once.
+    private var hotkeyStarted = false
+    /// Locale the ready pipeline was initialized with (v2 multi-language).
+    private var activeLocaleIdentifier: String?
 
     init(
         hotkey: any HotkeyMonitoring = HotkeyMonitor(),
@@ -76,7 +94,10 @@ final class DictationController {
         processingSettings: (@MainActor () -> ProcessingSettings)? = nil,
         playSound: (@MainActor (String) -> Void)? = nil,
         frontmostPID: (@MainActor () -> pid_t?)? = nil,
-        onboardingPresenter: (@MainActor (Bool, @escaping () -> Void) -> Void)? = nil
+        onboardingPresenter: (@MainActor (Bool, @escaping () -> Void) -> Void)? = nil,
+        transformer: any TextTransforming = CommandTransformCoordinator(transformer: FoundationModelTransformer()),
+        selectionProvider: (@MainActor () -> (text: String, pid: pid_t)?)? = nil,
+        commandModeAvailable: (@MainActor () -> Bool)? = nil
     ) {
         self.hotkey = hotkey
         self.recorder = recorder
@@ -98,6 +119,9 @@ final class DictationController {
         }
         self.frontmostPID = frontmostPID ?? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
         self.onboardingPresenter = onboardingPresenter
+        self.transformer = transformer
+        self.selectionProvider = selectionProvider ?? { TextInserter.accessibilitySelectedText() }
+        self.commandModeAvailable = commandModeAvailable ?? { CleanupAvailability.isAvailable }
     }
 
     func start() async {
@@ -147,7 +171,9 @@ final class DictationController {
 
         hotkey.onKeyDown = { [weak self] in self?.hotkeyDown() }
         hotkey.onKeyUp = { [weak self] in self?.hotkeyUp() }
-        if !hotkey.start() {
+        hotkey.onSecondaryDown = { [weak self] in self?.commandKeyDown() }
+        hotkey.onSecondaryUp = { [weak self] in self?.commandKeyUp() }
+        if !hotkeyStarted && !hotkey.start() {
             // Input Monitoring granted after launch doesn't reach an existing process;
             // the onboarding window offers a restart in this state.
             NSLog("Internos: event tap creation failed — restart needed after Input Monitoring grant")
@@ -155,11 +181,32 @@ final class DictationController {
             enterSetupFailed()
             showOnboarding()
         } else {
+            hotkeyStarted = true
             NSLog("Internos: ready")
             pipelineReady = true
+            activeLocaleIdentifier = AppSettings.shared.recognitionLocale
             state = .idle
             statusItem.setState(.idle)
             statusItem.refreshHotkeyHint()
+        }
+    }
+
+    /// A recognition-language change needs a new analyzer format and possibly a new
+    /// model asset. Re-initialize; if the model for the new language isn't installed,
+    /// the setup window's download step takes over.
+    func handleLocaleChangeIfNeeded() {
+        let selected = AppSettings.shared.recognitionLocale
+        guard let active = activeLocaleIdentifier, selected != active, state != .recording, state != .finalizing else { return }
+        NSLog("Internos: recognition language changed — reinitializing pipeline")
+        pipelineReady = false
+        state = .settingUp
+        statusItem.setState(.disabled)
+        Task {
+            if await engine.modelStatus() == .installed {
+                await initializePipeline()
+            } else {
+                showOnboarding()
+            }
         }
     }
 
@@ -237,6 +284,7 @@ final class DictationController {
                 task.cancel()
                 utteranceTask = nil
             }
+            commandContext = nil
             indicator.hide()
         }
     }
@@ -246,6 +294,7 @@ final class DictationController {
         settingsWindow.show(customizations: customizations) { [weak self] in
             self?.hotkey.reloadSettings()
             self?.statusItem.refreshHotkeyHint()
+            self?.handleLocaleChangeIfNeeded()
         }
     }
 
@@ -290,6 +339,7 @@ final class DictationController {
             do {
                 try self.inserter.insert(value.final, target: target)
                 NSLog("Internos: last dictation pasted")
+                self.lastInsertion = (value.final.count, target)
                 self.playSound("Purr")
             } catch {
                 self.handleInsertionFailure(error, transcript: value.final)
@@ -310,9 +360,14 @@ final class DictationController {
         do {
             let stream = try recorder.start(analyzerFormat: format, deviceUID: AppSettings.shared.inputDeviceUID)
             utteranceGeneration += 1
-            // Transcription consumes buffers live during the hold; finalize unblocks on release.
+            let gen = utteranceGeneration
+            // Transcription consumes buffers live during the hold; finalize unblocks on
+            // release. Partial results drive the live preview (display only).
+            let onPartial: @Sendable (String) -> Void = { [weak self] text in
+                Task { @MainActor in self?.handlePartial(text, generation: gen) }
+            }
             utteranceTask = Task { [engine] in
-                try await engine.transcribe(input: stream, format: format)
+                try await engine.transcribe(input: stream, format: format, onPartial: onPartial)
             }
             state = .recording
             statusItem.setState(.recording)
@@ -324,6 +379,13 @@ final class DictationController {
             indicator.hide()
             playSound("Basso")
         }
+    }
+
+    /// Live preview: only the current utterance may paint the indicator, and only
+    /// while it's actually on screen (recording/finalizing).
+    private func handlePartial(_ text: String, generation: Int) {
+        guard generation == utteranceGeneration, state == .recording || state == .finalizing else { return }
+        indicator.showPartial(text)
     }
 
     func endUtterance() {
@@ -385,6 +447,9 @@ final class DictationController {
         case .success(let transcript) where transcript.final.isEmpty:
             NSLog("Internos: empty transcript")
             updateUI(.error, "Basso")
+        case .success(let transcript) where Self.isScratchCommand(transcript.raw):
+            // "scratch that" (v2): delete the previous insertion instead of inserting.
+            performScratch(updateUI: updateUI)
         case .success(let transcript):
             // Log length only — never the content. Writing transcripts to the unified
             // log (persistent, readable) would contradict the app's whole premise.
@@ -393,8 +458,9 @@ final class DictationController {
             // path below still leaves the transcript recoverable from the menu.
             volatileStore.record(raw: transcript.raw, final: transcript.final, cleanupApplied: transcript.cleanupApplied)
             do {
-                try inserter.insert(transcript.final, target: target)
-                NSLog("Internos: inserted")
+                let method = try inserter.insert(transcript.final, target: target)
+                NSLog("Internos: inserted (\(method == .accessibility ? "accessibility" : "clipboard"))")
+                lastInsertion = (transcript.final.count, target)
                 updateUI(.idle, "Purr")
             } catch {
                 handleInsertionFailure(error, transcript: transcript.final)
@@ -402,6 +468,135 @@ final class DictationController {
             }
         case .failure(let error):
             NSLog("Internos: utterance failed: \(error)")
+            updateUI(.error, "Basso")
+        }
+    }
+
+    // MARK: - command mode (v2)
+
+    /// Command key pressed: capture the current selection (explicit invocation only),
+    /// then record the spoken instruction while the key is held.
+    func commandKeyDown() {
+        guard state == .idle || state == .finalizing, let format = analyzerFormat else { return }
+        guard commandModeAvailable() else {
+            NSLog("Internos: command mode unavailable (Apple Intelligence)")
+            statusItem.setState(.error)
+            playSound("Basso")
+            return
+        }
+        guard let selection = selectionProvider() else {
+            NSLog("Internos: command mode — no selected text in the focused element")
+            statusItem.setState(.error)
+            playSound("Basso")
+            return
+        }
+        do {
+            let stream = try recorder.start(analyzerFormat: format, deviceUID: AppSettings.shared.inputDeviceUID)
+            utteranceGeneration += 1
+            commandContext = (selection.text, selection.pid)
+            utteranceTask = Task { [engine] in
+                try await engine.transcribe(input: stream, format: format, onPartial: nil)
+            }
+            state = .commandRecording
+            statusItem.setState(.recording)
+            indicator.show(.recording)
+            playSound("Pop")
+            NSLog("Internos: command mode recording (selection \(selection.text.count) chars)")
+        } catch {
+            NSLog("Internos: command mode audio start failed: \(error)")
+            commandContext = nil
+            statusItem.setState(.error)
+            indicator.hide()
+            playSound("Basso")
+        }
+    }
+
+    func commandKeyUp() {
+        guard state == .commandRecording, let task = utteranceTask, let context = commandContext else { return }
+        utteranceTask = nil
+        commandContext = nil
+        recorder.stop()
+        state = .finalizing
+        statusItem.setState(.transcribing)
+        indicator.show(.transcribing)
+
+        let gen = utteranceGeneration
+        let epoch = pauseEpoch
+        let previous = insertionChain
+        insertionChain = Task { [weak self, transformer] in
+            await previous?.value
+            var transformed: String?
+            var instructionHeard = false
+            if let instruction = try? await task.value,
+               !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                instructionHeard = true
+                transformed = await transformer.transform(context.selection, instruction: instruction)
+            }
+            self?.completeCommand(
+                gen: gen, epoch: epoch, context: context,
+                transformed: transformed, instructionHeard: instructionHeard)
+        }
+    }
+
+    private func completeCommand(
+        gen: Int, epoch: Int, context: (selection: String, target: pid_t),
+        transformed: String?, instructionHeard: Bool
+    ) {
+        guard epoch == pauseEpoch else { return } // paused: change nothing (IR-004 semantics)
+        let isCurrent = gen == utteranceGeneration
+        let updateUI: (AppState, String?) -> Void = { [self] uiState, sound in
+            guard isCurrent else { return }
+            indicator.hide()
+            statusItem.setState(uiState)
+            state = .idle
+            if let sound { playSound(sound) }
+        }
+
+        guard instructionHeard, let transformed else {
+            // Unavailable model, timeout, refusal, empty instruction: the selection is
+            // untouched — fail loud, change nothing.
+            NSLog("Internos: command mode produced no transformation")
+            updateUI(.error, "Basso")
+            return
+        }
+        // Raw = the original selection, so Copy Last Raw Dictation can recover it.
+        volatileStore.record(raw: context.selection, final: transformed, cleanupApplied: true)
+        do {
+            // Replacing the selection is the same primitive as insertion: the AX path
+            // sets selected text; the paste fallback replaces the selection natively.
+            let method = try inserter.insert(transformed, target: context.target)
+            NSLog("Internos: command replacement inserted (\(method == .accessibility ? "accessibility" : "clipboard"))")
+            lastInsertion = (transformed.count, context.target)
+            updateUI(.idle, "Purr")
+        } catch {
+            handleInsertionFailure(error, transcript: transformed)
+            updateUI(.error, "Basso")
+        }
+    }
+
+    /// Whole-utterance "scratch that" (with optional trailing punctuation) triggers the
+    /// voice undo. Checked against the RAW transcript so replacements can't hijack it.
+    static func isScratchCommand(_ raw: String) -> Bool {
+        let folded = raw.folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:"))
+        return folded == "scratch that"
+    }
+
+    private func performScratch(updateUI: (AppState, String?) -> Void) {
+        guard let last = lastInsertion, last.characterCount <= Self.maxScratchCharacters else {
+            NSLog("Internos: scratch that ignored (nothing to scratch or too long)")
+            updateUI(.error, "Basso")
+            return
+        }
+        do {
+            try inserter.deleteBackward(last.characterCount, target: last.target)
+            NSLog("Internos: scratched last insertion (\(last.characterCount) chars)")
+            lastInsertion = nil // one-shot: a second scratch must not eat older text
+            updateUI(.idle, "Purr")
+        } catch {
+            // Wrong app frontmost, Secure Input, etc. — delete nothing, fail loud.
+            NSLog("Internos: scratch failed: \(error)")
             updateUI(.error, "Basso")
         }
     }

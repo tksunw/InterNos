@@ -12,6 +12,9 @@ import CoreGraphics
 protocol HotkeyMonitoring: AnyObject {
     var onKeyDown: (() -> Void)? { get set }
     var onKeyUp: (() -> Void)? { get set }
+    /// Command-mode key (v2). Inactive when it collides with the dictation key.
+    var onSecondaryDown: (() -> Void)? { get set }
+    var onSecondaryUp: (() -> Void)? { get set }
     func start() -> Bool
     func reloadSettings()
 }
@@ -25,11 +28,21 @@ final class HotkeyMonitor: HotkeyMonitoring {
 
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
+    var onSecondaryDown: (() -> Void)?
+    var onSecondaryUp: (() -> Void)?
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isHeld = false
     private var watched: HotkeyChoice = AppSettings.shared.hotkey
+    private var secondaryHeld = false
+    private var secondaryWatched: HotkeyChoice? = HotkeyMonitor.effectiveCommandKey()
+
+    /// The command key is active only when it differs from the dictation key.
+    private static func effectiveCommandKey() -> HotkeyChoice? {
+        let command = AppSettings.shared.commandHotkey
+        return command == AppSettings.shared.hotkey ? nil : command
+    }
 
     /// Pure transition logic, kept separate from the event tap so it is unit-testable.
     /// Down/up comes from the selected key's device-specific flag bit, not the generic
@@ -45,15 +58,20 @@ final class HotkeyMonitor: HotkeyMonitoring {
         return (isHeld, nil) // duplicate flagsChanged for an unchanged state: no callback
     }
 
-    /// Re-read the configured hotkey after a settings change. If the old key is mid-hold,
+    /// Re-read the configured hotkeys after a settings change. If an old key is mid-hold,
     /// end it (emitting keyUp so a recording can't run forever) before switching keys;
-    /// the new key starts from a clean not-held state with no synthetic transition.
+    /// the new keys start from a clean not-held state with no synthetic transition.
     func reloadSettings() {
         if isHeld {
             isHeld = false
             onKeyUp?()
         }
+        if secondaryHeld {
+            secondaryHeld = false
+            onSecondaryUp?()
+        }
         watched = AppSettings.shared.hotkey
+        secondaryWatched = Self.effectiveCommandKey()
     }
 
     /// Returns false if the event tap could not be created (Input Monitoring not granted).
@@ -102,6 +120,17 @@ final class HotkeyMonitor: HotkeyMonitoring {
         case .up: onKeyUp?()
         case nil: break
         }
+
+        if let secondaryWatched {
+            let (sHeld, sEvent) = Self.transition(
+                isHeld: secondaryHeld, watched: secondaryWatched, keyCode: keyCode, flags: flags)
+            secondaryHeld = sHeld
+            switch sEvent {
+            case .down: onSecondaryDown?()
+            case .up: onSecondaryUp?()
+            case nil: break
+            }
+        }
     }
 
     /// The tap was disabled (timeout or user input) — we may have missed the release.
@@ -110,6 +139,10 @@ final class HotkeyMonitor: HotkeyMonitoring {
         if isHeld {
             isHeld = false
             onKeyUp?()
+        }
+        if secondaryHeld {
+            secondaryHeld = false
+            onSecondaryUp?()
         }
         if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
     }

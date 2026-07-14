@@ -5,6 +5,7 @@
 // hundreds of entries because rows are lazy.
 
 import AppKit
+import Speech
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -35,6 +36,9 @@ private struct GeneralSettingsView: View {
     @State private var launchAtLogin = AppSettings.shared.launchAtLogin
     @State private var checkUpdatesAtLaunch = AppSettings.shared.checkUpdatesAtLaunch
     @State private var devices = AudioDevices.inputDevices()
+    @State private var recognitionLocale = AppSettings.shared.recognitionLocale
+    @State private var supportedLocales: [(id: String, name: String)] = []
+    @State private var commandHotkey = AppSettings.shared.commandHotkey
 
     var onChange: (() -> Void)?
 
@@ -51,6 +55,22 @@ private struct GeneralSettingsView: View {
                         Text(m.label).tag(m)
                     }
                 }
+                Picker("Command key", selection: $commandHotkey) {
+                    ForEach(HotkeyChoice.allCases) { choice in
+                        Text(choice.label).tag(choice)
+                    }
+                }
+                .accessibilityLabel("Command mode key")
+            } footer: {
+                if commandHotkey == hotkey {
+                    Text("Command mode is off while the command key matches the dictation key. Pick a different key to enable it.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Hold the command key with text selected, speak an instruction (\u{201C}fix the spelling\u{201D}, \u{201C}make this friendlier\u{201D}), release. The selection is rewritten on-device.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Section {
                 Picker("Microphone", selection: $inputDeviceUID) {
@@ -59,6 +79,19 @@ private struct GeneralSettingsView: View {
                         Text(device.name).tag(device.uid)
                     }
                 }
+                Picker("Language", selection: $recognitionLocale) {
+                    if supportedLocales.isEmpty {
+                        Text(displayName(recognitionLocale)).tag(recognitionLocale)
+                    }
+                    ForEach(supportedLocales, id: \.id) { locale in
+                        Text(locale.name).tag(locale.id)
+                    }
+                }
+                .accessibilityLabel("Recognition language")
+            } footer: {
+                Text("Changing the language may download that language's speech model (a one-time system download). Spoken commands — new line, snippet, emoji names — are English-only for now.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section {
                 Toggle("Play sounds", isOn: $playSounds)
@@ -74,6 +107,7 @@ private struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: hotkey) { AppSettings.shared.hotkey = hotkey; onChange?() }
+        .onChange(of: commandHotkey) { AppSettings.shared.commandHotkey = commandHotkey; onChange?() }
         .onChange(of: mode) { AppSettings.shared.mode = mode; onChange?() }
         .onChange(of: inputDeviceUID) {
             AppSettings.shared.inputDeviceUID = inputDeviceUID.isEmpty ? nil : inputDeviceUID
@@ -82,6 +116,20 @@ private struct GeneralSettingsView: View {
         .onChange(of: playSounds) { AppSettings.shared.playSounds = playSounds }
         .onChange(of: launchAtLogin) { AppSettings.shared.launchAtLogin = launchAtLogin }
         .onChange(of: checkUpdatesAtLaunch) { AppSettings.shared.checkUpdatesAtLaunch = checkUpdatesAtLaunch }
+        .onChange(of: recognitionLocale) {
+            AppSettings.shared.recognitionLocale = recognitionLocale
+            onChange?()
+        }
+        .task {
+            let locales = await SpeechTranscriber.supportedLocales
+            supportedLocales = locales
+                .map { (id: $0.identifier, name: displayName($0.identifier)) }
+                .sorted { $0.name < $1.name }
+        }
+    }
+
+    private func displayName(_ identifier: String) -> String {
+        Locale.current.localizedString(forIdentifier: identifier) ?? identifier
     }
 }
 

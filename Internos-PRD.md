@@ -107,7 +107,10 @@ replacement output is never re-processed or sent to the model:
 
 - **Command mode** — a separate hotkey to transform highlighted text by voice (rewrite / fix / translate), inserting inline or replacing the selection. This is Wispr Flow's "Command Mode." Explicitly a **v2+ non-goal** for now, but named so the architecture doesn't preclude it.
 - Per-app formatting profiles (e.g., no auto-capitalization in a terminal, markdown-friendly formatting in Notes).
-- Persistent transcription history (the volatile recovery buffer above is intentionally memory-only).
+
+### Permanent non-goal: transcript history
+
+Persistent transcript history (even opt-in, even encrypted, even local-only) is a **permanent non-goal**, decided 2026-07-14. Privacy and data integrity are the product's #1 concern; retained transcripts are a liability the product exists to avoid. Users who want history retention should use Wispr Flow or another app. The volatile in-memory recovery buffer (v1.2.0) is the ceiling: one transcript, process memory only, gone on quit.
 
 ---
 

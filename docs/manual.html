@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Internos User Manual</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --accent: #7c5cf0;
+  --card: #f5f5f7; --border: #d2d2d7; --code-bg: #f0f0f2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131316; --fg: #e8e8ed; --muted: #98989f; --accent: #a08cf5;
+    --card: #1d1d22; --border: #3a3a40; --code-bg: #26262c;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+main { max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0.5rem 0 0.25rem; }
+h2 { font-size: 1.4rem; margin: 2.5rem 0 0.75rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+p, li { max-width: 65ch; }
+a { color: var(--accent); }
+.tagline { color: var(--muted); font-style: italic; margin-bottom: 2rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.925rem; }
+th, td { text-align: left; padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+code, kbd {
+  font: 0.875em ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--code-bg); border-radius: 4px; padding: 0.1em 0.35em;
+}
+kbd { border: 1px solid var(--border); border-bottom-width: 2px; }
+blockquote {
+  margin: 1rem 0; padding: 0.6rem 1rem; background: var(--card);
+  border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0;
+}
+.note {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.925rem;
+}
+nav.toc {
+  background: var(--card); border-radius: 10px; padding: 1rem 1.5rem; margin: 1.5rem 0;
+}
+nav.toc ol { margin: 0.25rem 0 0; padding-left: 1.25rem; columns: 2; column-gap: 2rem; }
+nav.toc li { margin: 0.2rem 0; }
+nav.toc a { text-decoration: none; }
+nav.toc a:hover { text-decoration: underline; }
+@media (max-width: 540px) { nav.toc ol { columns: 1; } }
+.steps li { margin: 0.35rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Internos User Manual</h1>
+<p class="tagline">For Internos 2.0. Everything in this manual happens on your Mac. Nothing you say or type is sent anywhere.</p>
+
+<nav class="toc" aria-label="Contents">
+<strong>Contents</strong>
+<ol>
+<li><a href="#what">What Internos is</a></li>
+<li><a href="#start">Getting started</a></li>
+<li><a href="#dictating">Dictating</a></li>
+<li><a href="#commands">Spoken commands</a></li>
+<li><a href="#dictionary">Personal dictionary</a></li>
+<li><a href="#snippets">Snippets</a></li>
+<li><a href="#cleanup">Smart cleanup</a></li>
+<li><a href="#commandmode">Command mode</a></li>
+<li><a href="#scratch">Scratch that</a></li>
+<li><a href="#recovery">Last dictation recovery</a></li>
+<li><a href="#languages">Languages</a></li>
+<li><a href="#settings">Settings reference</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#privacy">Privacy</a></li>
+</ol>
+</nav>
+
+<h2 id="what">What Internos is</h2>
+<p>Internos is a macOS menu bar utility for voice dictation. Hold a key, speak, release, and your words appear at the cursor in whatever app you're using. All speech recognition and text processing runs on your Mac using Apple's built-in frameworks. There is no cloud service, no account, and no network traffic in the dictation path.</p>
+<p>Requirements: macOS 26 (Tahoe) or later, Apple Silicon. The optional AI features (smart cleanup and command mode) also need Apple Intelligence enabled in System Settings.</p>
+
+<h2 id="start">Getting started</h2>
+
+<h3>Install</h3>
+<p>Download the DMG from the <a href="https://github.com/tksunw/InterNos/releases">releases page</a>, drag Internos to Applications, and launch it. Internos lives in the menu bar (a waveform-and-mic icon); it has no Dock icon.</p>
+<div class="note"><strong>When updating:</strong> replace the app in Applications, then quit and relaunch Internos. Replacing the file does not restart the running copy.</div>
+
+<h3>Permissions</h3>
+<p>The setup window walks you through three macOS permissions. Each lives in its own System Settings pane, and Internos needs all three:</p>
+<div class="tablewrap"><table>
+<tr><th>Permission</th><th>Why Internos needs it</th></tr>
+<tr><td>Microphone</td><td>Captures your voice while the dictation key is held</td></tr>
+<tr><td>Input Monitoring</td><td>Detects the dictation key anywhere in macOS</td></tr>
+<tr><td>Accessibility</td><td>Inserts the transcribed text at your cursor</td></tr>
+</table></div>
+<p>If Input Monitoring is granted while Internos is running, macOS requires an app restart before key detection works. The setup window offers a Restart button for exactly this case.</p>
+
+<h3>The speech model</h3>
+<p>On first run, Internos asks macOS to download the speech model for your language. This is a one-time system download, stored by macOS and shared across apps. Internos itself never talks to the network for this.</p>
+
+<h2 id="dictating">Dictating</h2>
+
+<h3>Push to talk (default)</h3>
+<p>Hold <kbd>Right&nbsp;Option</kbd>, speak, release. The transcription is inserted at your cursor. A floating panel near the bottom of the screen shows a live waveform and your words as they're recognized.</p>
+
+<h3>Toggle mode</h3>
+<p>In Settings, switch Activation to Toggle: tap the dictation key once to start, tap again to stop. Useful for longer dictation where holding a key is awkward.</p>
+
+<h3>What the menu bar icon tells you</h3>
+<div class="tablewrap"><table>
+<tr><th>Icon</th><th>Meaning</th></tr>
+<tr><td>Waveform and mic</td><td>Idle, ready to dictate</td></tr>
+<tr><td>Filled mic</td><td>Recording</td></tr>
+<tr><td>Waveform</td><td>Transcribing</td></tr>
+<tr><td>Warning triangle (brief)</td><td>Something went wrong with that utterance</td></tr>
+<tr><td>Warning triangle (persistent)</td><td>Setup problem; open Setup &amp; Permissions from the menu</td></tr>
+<tr><td>Slashed waveform</td><td>Paused, or setup incomplete</td></tr>
+</table></div>
+
+<h3>When insertion is blocked</h3>
+<p>Internos never types into password fields (macOS Secure Input) and refuses to paste if you switch apps between releasing the key and the text landing. In both cases it plays the error sound and leaves the transcript on the clipboard so nothing is lost. You can also recover it from the menu (see <a href="#recovery">Last dictation recovery</a>).</p>
+
+<h2 id="commands">Spoken commands</h2>
+<p>Say these while dictating. Commands are matched as whole phrases, so ordinary words like "bulletproof" or "newline" never trigger anything. Commands are English-only for now, regardless of the recognition language.</p>
+<div class="tablewrap"><table>
+<tr><th>You say</th><th>You get</th></tr>
+<tr><td>"new line"</td><td>a line break</td></tr>
+<tr><td>"new paragraph"</td><td>a blank line</td></tr>
+<tr><td>"bullet point milk"</td><td><code>• milk</code> (each one starts a new line)</td></tr>
+<tr><td>"numbered item milk"</td><td><code>1. milk</code> (numbering continues; a new paragraph resets to 1)</td></tr>
+<tr><td>"open quote … close quote"</td><td>curly quotes around the text</td></tr>
+<tr><td>"open parenthesis … close parenthesis"</td><td>parentheses around the text</td></tr>
+<tr><td>"hashtag yard"</td><td><code>#yard</code></td></tr>
+<tr><td>"emoji thumbs up"</td><td>👍</td></tr>
+<tr><td>"at sign", "dollar sign", "percent sign"</td><td><code>@</code>, <code>$</code>, <code>%</code></td></tr>
+<tr><td>"snippet calendar link"</td><td>your saved snippet, exactly as stored</td></tr>
+<tr><td>"literal new line"</td><td>the words <code>new line</code> (escapes exactly one command)</td></tr>
+</table></div>
+<p>Emoji need the spoken word "emoji" before the name, so "she sent me a smiley face" stays literal text. About thirty names are supported; the full list is in the README.</p>
+
+<h2 id="dictionary">Personal dictionary (replacements)</h2>
+<p>The recognizer will never spell your project names, handles, or jargon correctly. Replacements fix that deterministically: you define a trigger phrase and the exact output, and Internos substitutes it after every transcription.</p>
+<p>Examples: "cube control" becomes <code>kubectl</code>, "power shell" becomes <code>PowerShell</code>, "t k sun w" becomes <code>tksunw</code>.</p>
+<p>Manage them in <strong>Settings → Customizations → Replacements</strong>. Matching is case-insensitive and whole-word ("cat" never fires inside "concatenate"), the longest trigger wins when triggers overlap, and the output is typed exactly as you wrote it. The output is never re-interpreted as a command or another replacement.</p>
+<div class="note"><strong>Tip for spelled-out triggers:</strong> the recognizer merges spoken letters unpredictably ("t k sun w" may arrive as "TK sun W" or "T. K. Sun W."). Internos compensates: any trigger containing single letters also matches on its squashed form, so all of those variants work. Just define the trigger the way you say it.</div>
+
+<h2 id="snippets">Snippets</h2>
+<p>Snippets insert saved text by voice. Say "snippet" followed by the snippet's name:</p>
+<blockquote>"snippet calendar link" → <code>https://example.com/schedule</code></blockquote>
+<p>The "snippet" prefix is required, so saying a snippet's name in ordinary speech stays literal text. Content is inserted exactly as stored, line breaks and Unicode included, and is never altered by cleanup, replacements, or commands. Snippets are static text only; there are no variables or scripts.</p>
+<p>Manage them in <strong>Settings → Customizations → Snippets</strong>. Names can be up to 100 characters, content up to 16&nbsp;KB. Snippets are stored on your Mac as plain text, so don't put passwords or private keys in them.</p>
+<p>Both replacements and snippets can be exported to a JSON file and imported on another Mac (Merge keeps existing entries on conflict; Replace swaps everything after validating the file).</p>
+
+<h2 id="cleanup">Smart cleanup</h2>
+<p>Cleanup tidies your dictation after recognition, entirely on-device via Apple Intelligence. Choose a level in <strong>Settings → Processing</strong>:</p>
+<ul>
+<li><strong>Off</strong> (default): exactly what you said.</li>
+<li><strong>Light</strong>: removes filler ("um", "uh"), accidental repetition, and false starts, and applies self-corrections. Say "meet Tuesday, actually Wednesday" and you get "meet Wednesday".</li>
+<li><strong>Polished</strong>: Light, plus smoothing fragments into readable prose.</li>
+</ul>
+<p>Rules that keep cleanup safe:</p>
+<ul>
+<li>Utterances containing snippets or spoken commands never go through the AI model. They get deterministic filler removal only ("um"/"uh"-class sounds), so the model can never invent text around your snippets.</li>
+<li>If the model is slow (over two seconds) or produces something suspicious, Internos falls back to your exact words plus filler removal. A cleanup failure never loses a dictation.</li>
+<li>Cleanup currently applies to English dictation only. Other languages are inserted exactly as recognized.</li>
+<li>Your original words are always recoverable: when cleanup changed the text, the menu shows <strong>Copy Last Raw Dictation</strong>.</li>
+</ul>
+<p>Cleanup needs an Apple-Intelligence-eligible Mac. Without one, Light and Polished show as unavailable and dictation is unaffected.</p>
+
+<h2 id="commandmode">Command mode</h2>
+<p>Command mode rewrites text you've selected, using a spoken instruction. It works in any app that exposes its text to macOS accessibility.</p>
+<ol class="steps">
+<li>Select text in any app.</li>
+<li>Hold the <strong>command key</strong> (default <kbd>Right&nbsp;Command</kbd>; configurable in Settings).</li>
+<li>Speak an instruction: "fix the spelling", "make this friendlier", "make this formal", "translate this to Spanish".</li>
+<li>Release. The selection is replaced with the rewritten version.</li>
+</ol>
+<p>The selection is read only at the moment you press the key, never in the background. If anything fails (no selection, model timeout, model refusal), your selection is left exactly as it was and the floating panel tells you why. After a rewrite, the original text is available under <strong>Copy Last Raw Dictation</strong> in the menu.</p>
+<p>Command mode requires Apple Intelligence. If the command key is set to the same key as the dictation key, command mode is off; Settings shows a warning.</p>
+
+<h2 id="scratch">Scratch that (voice undo)</h2>
+<p>Say <strong>"scratch that"</strong> as its own utterance to delete the previous dictation or command mode rewrite. Natural lead-ins work: "Actually, scratch that." and "No, scratch that." also trigger it. Longer sentences containing the phrase stay ordinary text.</p>
+<p>It undoes one level (the most recent insertion), only while the same app is still in front. To use it: dictate, release the key, then hold the key again and say the phrase.</p>
+<p>When dictating in another language, use the local phrase: Spanish "borra eso" or "tacha eso", French "efface ça", German "streich das" or "lösch das", Portuguese "apaga isso", Italian "cancella quello". English works everywhere as a fallback.</p>
+<div class="note">Note the difference from self-correction: fixing yourself mid-utterance ("…the grocery store, no scratch that, the pharmacy") is handled by smart cleanup (English only), not by the scratch command.</div>
+
+<h2 id="recovery">Last dictation recovery</h2>
+<p>The menu bar menu keeps your most recent transcript available:</p>
+<ul>
+<li><strong>Copy Last Dictation</strong>: puts the final text on the clipboard.</li>
+<li><strong>Paste Last Dictation</strong>: inserts it again into the app you were just using, with the same safety checks as live dictation.</li>
+<li><strong>Copy Last Raw Dictation</strong>: appears when cleanup or command mode changed the text; gives you the original.</li>
+<li><strong>Clear Last Dictation</strong>: forgets it immediately.</li>
+</ul>
+<p>This is held in memory only. It is never written to disk, and quitting Internos erases it. It is a recovery buffer, not a history; Internos deliberately keeps no transcript history.</p>
+
+<h2 id="languages">Languages</h2>
+<p><strong>Settings → General → Language</strong> lists every language the on-device recognizer supports. Switching may trigger a one-time system download of that language's speech model.</p>
+<p>What changes with a non-English language: recognition and the scratch phrase are localized; spoken commands (new line, snippet, emoji names) remain English; smart cleanup does not run (text is inserted exactly as recognized).</p>
+
+<h2 id="settings">Settings reference</h2>
+
+<h3>General</h3>
+<div class="tablewrap"><table>
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>Dictation key</td><td>The push-to-talk key. Right Option, Right Command, Right Control, or Fn/Globe</td></tr>
+<tr><td>Activation</td><td>Push to talk (hold) or Toggle (tap to start/stop)</td></tr>
+<tr><td>Command key</td><td>The command mode key. Must differ from the dictation key</td></tr>
+<tr><td>Microphone</td><td>Which input device to record from</td></tr>
+<tr><td>Language</td><td>Recognition language</td></tr>
+<tr><td>Play sounds</td><td>Start/success/error sounds</td></tr>
+<tr><td>Launch at login</td><td>Start Internos when you log in</td></tr>
+<tr><td>Check for updates at launch</td><td>Off by default. When on, one request to GitHub at startup; this is the only automatic network call Internos can make</td></tr>
+</table></div>
+
+<h3>Processing</h3>
+<p>Smart cleanup level (Off, Light, Polished), Apple Intelligence availability, and a quick reference of the spoken commands.</p>
+
+<h3>Customizations</h3>
+<p>Replacements and snippets: search, add, edit, enable or disable, delete, and Import/Export for moving your configuration between Macs. If the configuration file on disk is damaged or was written by a newer version of Internos, a notice appears here instead of silently overwriting your data.</p>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>Dictation key does nothing.</strong> Check Input Monitoring in System Settings → Privacy &amp; Security. If you granted it while Internos was running, restart Internos.</p>
+<p><strong>Text doesn't insert, error sound plays.</strong> Usually one of: a password field has focus (Secure Input; Internos refuses by design), you switched apps before the text landed, or Accessibility permission was revoked. In every case the transcript is on the clipboard and in the recovery menu.</p>
+<p><strong>Command mode says "Select some text first" although text is selected.</strong> The frontmost app doesn't expose its selection to macOS accessibility. Most native apps do; some Electron apps and browsers don't. Try it in TextEdit to confirm command mode itself works.</p>
+<p><strong>Snippet or replacement doesn't fire.</strong> Check it's enabled in Customizations, and say the name the way you defined it. For spelled-letter names, variants are matched automatically.</p>
+<p><strong>Cleanup does nothing.</strong> Check the level in Settings → Processing, that Apple Intelligence is enabled, and that the recognition language is English. Utterances containing snippets or commands intentionally get filler removal only.</p>
+<p><strong>After an update, old bugs are still there.</strong> Quit and relaunch: replacing the app in Applications does not restart the running copy. Check the version via the About panel.</p>
+
+<h2 id="privacy">Privacy in one paragraph</h2>
+<p>Speech recognition, cleanup, and command mode all run on your Mac. Internos stores only your settings and customizations, never transcripts or audio. The last-dictation buffer lives in memory and dies with the process. Insertion prefers a direct accessibility path that bypasses the clipboard entirely; when an app forces the clipboard fallback, the transcript is briefly on the pasteboard where clipboard managers or Universal Clipboard could see it, as with any copied text. The only network call Internos can make is the optional update check. Full policy: <a href="https://github.com/tksunw/InterNos/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
+
+</main>
+</body>
+</html>

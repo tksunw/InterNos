@@ -576,13 +576,16 @@ final class DictationController {
         }
     }
 
-    /// Whole-utterance "scratch that" (with optional trailing punctuation) triggers the
-    /// voice undo. Checked against the RAW transcript so replacements can't hijack it.
+    /// An utterance ENDING in "scratch that", with at most two lead-in words,
+    /// triggers the voice undo — people say "Actually, scratch that." not the bare
+    /// command (beta-4 field report). Longer sentences containing the phrase stay
+    /// literal text. Checked against the RAW transcript so replacements can't hijack it.
     static func isScratchCommand(_ raw: String) -> Bool {
-        let folded = raw.folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:"))
-        return folded == "scratch that"
+        let tokens = TranscriptTokenizer.tokenize(raw)
+        guard tokens.count >= 2, tokens.count <= 4 else { return false }
+        let last = tokens[tokens.count - 1]
+        let previous = tokens[tokens.count - 2]
+        return previous.core == "scratch" && previous.trailing.isEmpty && last.core == "that"
     }
 
     private func performScratch(updateUI: (AppState, String?) -> Void) {

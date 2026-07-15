@@ -45,8 +45,15 @@ final class ScratchThatTests: XCTestCase {
         XCTAssertTrue(DictationController.isScratchCommand("scratch that"))
         XCTAssertTrue(DictationController.isScratchCommand("Scratch that."))
         XCTAssertTrue(DictationController.isScratchCommand("  SCRATCH THAT!  "))
+        // Natural lead-ins (beta-4 field report: "Actually, scratch that.").
+        XCTAssertTrue(DictationController.isScratchCommand("Actually, scratch that."))
+        XCTAssertTrue(DictationController.isScratchCommand("No, scratch that."))
+        XCTAssertTrue(DictationController.isScratchCommand("oh wait scratch that"))
+        XCTAssertTrue(DictationController.isScratchCommand("please scratch that"))
+        // Longer sentences and other endings stay literal text.
         XCTAssertFalse(DictationController.isScratchCommand("scratch that itch"))
-        XCTAssertFalse(DictationController.isScratchCommand("please scratch that"))
+        XCTAssertFalse(DictationController.isScratchCommand("I told him he should scratch that"))
+        XCTAssertFalse(DictationController.isScratchCommand("we should go scratch that lottery ticket"))
         XCTAssertFalse(DictationController.isScratchCommand("scratch"))
     }
 

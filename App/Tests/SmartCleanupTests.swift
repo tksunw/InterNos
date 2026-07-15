@@ -54,14 +54,18 @@ final class SmartCleanupCoordinatorTests: XCTestCase {
     }
 
     func testValidationRejectsGarbageOutput() {
-        let validate = { SmartCleanupCoordinator.validate($0, input: "0123456789") }
-        XCTAssertNil(validate(""), "empty output rejected")
-        XCTAssertNil(validate("   \n  "), "whitespace-only output rejected")
-        XCTAssertNil(validate(String(repeating: "x", count: 15 + 128 + 1)), "oversize output rejected")
-        XCTAssertNil(validate("has a \u{0007} bell"), "control characters rejected")
-        XCTAssertEqual(validate("ok\ttab and\nnewline"), "ok\ttab and\nnewline", "tab and newline allowed")
-        XCTAssertEqual(validate("  trimmed \r\n"), "trimmed", "outer whitespace trimmed, line endings normalized")
-        XCTAssertEqual(validate("line one\r\nline two"), "line one\nline two")
+        let reject = { SmartCleanupCoordinator.validate($0, input: "0123456789") }
+        XCTAssertNil(reject(""), "empty output rejected")
+        XCTAssertNil(reject("   \n  "), "whitespace-only output rejected")
+        XCTAssertNil(reject(String(repeating: "x", count: 15 + 128 + 1)), "oversize output rejected")
+        XCTAssertNil(reject("has a \u{0007} bell"), "control characters rejected")
+        // Accepted outputs share the speaker's words (the overlap rule).
+        XCTAssertEqual(SmartCleanupCoordinator.validate("ok\ttab and\nnewline", input: "ok tab and newline"),
+                       "ok\ttab and\nnewline", "tab and newline allowed")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("  trimmed \r\n", input: "trimmed"),
+                       "trimmed", "outer whitespace trimmed, line endings normalized")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("line one\r\nline two", input: "line one line two"),
+                       "line one\nline two")
     }
 
     func testRejectedOutputFallsBackToOriginal() async {
@@ -168,6 +172,47 @@ final class SmartCleanupPipelineTests: XCTestCase {
         let settings = ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: .empty)
         let result = await pipeline(cleaner).process("um exactly what I said", settings: settings)
         XCTAssertEqual(result.final, "um exactly what I said")
+    }
+
+    func testValidationRejectsProseRefusals() {
+        // Exact beta field case: mild profanity made the model return refusal TEXT
+        // (not an error), which was inserted as the dictation.
+        let input = "You bloody rippah!  I can't believe you got that!"
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "I'm sorry, but as a chatbot created by Apple, I cannot use vulgar language.",
+            input: input))
+        // The speaker's own "I can't" never triggers the refusal check.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "You bloody rippah! I can't believe you got that!", input: input),
+            "You bloody rippah! I can't believe you got that!")
+    }
+
+    func testWordOverlapCatchesWholesaleRewrites() {
+        // A refusal or unrelated rewrite shares almost no words with the input.
+        XCTAssertLessThan(SmartCleanupCoordinator.wordOverlap(
+            output: "As a helpful assistant I must decline this request entirely.",
+            input: "you bloody rippah I can't believe you got that"), 0.5)
+        // Ordinary cleanup keeps the speaker's words.
+        XCTAssertGreaterThanOrEqual(SmartCleanupCoordinator.wordOverlap(
+            output: "We should go to the store.",
+            input: "um so we should um go to the store"), 0.5)
+        // Self-correction keeps the surviving words.
+        XCTAssertGreaterThanOrEqual(SmartCleanupCoordinator.wordOverlap(
+            output: "Meet Wednesday.",
+            input: "meet Tuesday, actually Wednesday"), 0.5)
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "Something entirely unrelated to what was spoken here.",
+            input: "buy milk and eggs tomorrow"))
+    }
+
+    func testCommandValidationRejectsRefusalsButAllowsTranslations() {
+        XCTAssertNil(CommandTransformCoordinator.validate(
+            "I'm sorry, but as a chatbot I cannot rewrite this text.",
+            input: "some selected text"))
+        // Translations share no words with the input and must still pass.
+        XCTAssertEqual(CommandTransformCoordinator.validate(
+            "Hola mundo, ¿cómo estás?", input: "hello world, how are you?"),
+            "Hola mundo, ¿cómo estás?")
     }
 
     func testModelCleanupGatedToEnglishRecognition() {

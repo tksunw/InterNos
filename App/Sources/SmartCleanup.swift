@@ -184,9 +184,33 @@ struct SmartCleanupCoordinator: SmartCleaning {
         // A URL or markdown link the speaker never said is a hallucination signature
         // (beta field report: a fabricated "[handle here](https://…)" completion).
         let inputFolded = input.lowercased()
-        for marker in ["http://", "https://", "]("] where value.lowercased().contains(marker) && !inputFolded.contains(marker) {
+        let outputFolded = value.lowercased()
+        for marker in ["http://", "https://", "]("] where outputFolded.contains(marker) && !inputFolded.contains(marker) {
             return nil
         }
+        // The model sometimes refuses in prose instead of throwing ("as a chatbot
+        // created by Apple, I cannot…" — beta field report on mild profanity).
+        // Phrases only count when the speaker didn't say them.
+        for marker in Self.refusalMarkers where outputFolded.contains(marker) && !inputFolded.contains(marker) {
+            return nil
+        }
+        // Cleanup preserves the speaker's words by definition; a refusal (or any
+        // wholesale rewrite) shares almost none of them.
+        guard wordOverlap(output: value, input: input) >= 0.5 else { return nil }
         return value
+    }
+
+    static let refusalMarkers = [
+        "as a chatbot", "as an ai", "as a language model", "i cannot", "i can not",
+        "i am unable", "i'm unable", "i am not able", "i'm not able", "i won't be able",
+    ]
+
+    /// Fraction of the output's words that appear anywhere in the input.
+    static func wordOverlap(output: String, input: String) -> Double {
+        let inputWords = Set(TranscriptTokenizer.tokenize(input).map(\.core))
+        let outputWords = TranscriptTokenizer.tokenize(output).map(\.core).filter { !$0.isEmpty }
+        guard !outputWords.isEmpty else { return 0 }
+        let hits = outputWords.filter { inputWords.contains($0) }.count
+        return Double(hits) / Double(outputWords.count)
     }
 }

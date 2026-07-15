@@ -89,6 +89,14 @@ struct CommandTransformCoordinator: TextTransforming {
             CharacterSet.controlCharacters.contains(scalar) && scalar.value != 9 && scalar.value != 10
         }
         guard !hasForbiddenControls else { return nil }
+        // Prose refusals must not replace the selection. No word-overlap check here —
+        // legitimate transforms (translations) can share zero words with the input.
+        let outputFolded = value.lowercased()
+        let inputFolded = input.lowercased()
+        for marker in SmartCleanupCoordinator.refusalMarkers
+        where outputFolded.contains(marker) && !inputFolded.contains(marker) {
+            return nil
+        }
         return value
     }
 

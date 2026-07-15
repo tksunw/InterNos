@@ -77,17 +77,34 @@ struct TranscriptPipeline: TranscriptProcessing {
         var segments = TranscriptCommandParser.parse(raw, snippets: settings.snippets)
         var cleanupApplied = false
 
-        // Cleanup runs only when the utterance is one plain text segment. Commands
-        // and snippets punch holes in the text, and the model, handed a dangling
-        // fragment like "my github handle is", invents completions for it — a beta
-        // field report saw a fabricated markdown link. Structured utterances take
-        // the deterministic path.
-        if settings.cleanupMode != .off, let cleaner,
-           segments.count == 1, case .text(let original) = segments[0] {
-            if let cleaned = await cleaner.clean(original, mode: settings.cleanupMode),
-               cleaned != original {
-                segments[0] = .text(cleaned)
-                cleanupApplied = true
+        // Model cleanup runs only when the utterance is one plain text segment.
+        // Commands and snippets punch holes in the text, and the model, handed a
+        // dangling fragment like "my github handle is", invents completions for it —
+        // a beta field report saw a fabricated markdown link. Structured utterances
+        // (and model failures) get deterministic filler stripping instead, so
+        // filler removal works everywhere without a hallucination surface.
+        if settings.cleanupMode != .off {
+            if let cleaner, segments.count == 1, case .text(let original) = segments[0] {
+                if let cleaned = await cleaner.clean(original, mode: settings.cleanupMode),
+                   cleaned != original {
+                    segments[0] = .text(cleaned)
+                    cleanupApplied = true
+                } else {
+                    let stripped = FillerStripper.strip(original)
+                    if stripped != original {
+                        segments[0] = .text(stripped)
+                        cleanupApplied = true
+                    }
+                }
+            } else {
+                for index in segments.indices {
+                    guard case .text(let original) = segments[index] else { continue }
+                    let stripped = FillerStripper.strip(original)
+                    if stripped != original {
+                        segments[index] = .text(stripped)
+                        cleanupApplied = true
+                    }
+                }
             }
         }
 

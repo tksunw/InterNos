@@ -56,6 +56,22 @@ enum CleanupPrompt {
     }
 }
 
+/// Deterministic filler-word removal — the zero-risk subset of Light cleanup.
+/// Used for utterances containing snippets/commands (where the model would see
+/// dangling fragments and invent completions) and as the fallback when the model
+/// path fails. Only non-word vocalizations: stripping "like" or "you know"
+/// needs semantics only the model has.
+enum FillerStripper {
+    private static let fillers: Set<String> = ["um", "uh", "uhm", "umm", "er", "erm", "hmm", "mhm"]
+
+    static func strip(_ text: String) -> String {
+        let tokens = TranscriptTokenizer.tokenize(text)
+        guard tokens.contains(where: { fillers.contains($0.core) }) else { return text }
+        let kept = tokens.filter { !fillers.contains($0.core) }
+        return kept.map { String(text[$0.range]) }.joined(separator: " ")
+    }
+}
+
 /// Availability of the on-device model, for Settings and preflight checks.
 enum CleanupAvailability {
     static var isAvailable: Bool { explanation == nil }

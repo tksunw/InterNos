@@ -128,6 +128,48 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertTrue(result.cleanupApplied)
     }
 
+    func testStructuredUtteranceGetsDeterministicFillerRemoval() async {
+        // Filler removal must survive in command/snippet utterances (beta-3 feedback) —
+        // deterministically, with the model never invoked.
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "t k sun w", "tksunw")])
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "SHOULD NOT RUN" }
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: table)
+
+        let result = await pipeline(cleaner).process(
+            "um my GitHub handle is uh snippet t k sun w", settings: settings)
+
+        XCTAssertEqual(result.final, "my GitHub handle is tksunw")
+        XCTAssertTrue(cleaner.inputs.isEmpty, "structured utterances never reach the model")
+        XCTAssertTrue(result.cleanupApplied)
+    }
+
+    func testModelFailureFallsBackToFillerStripping() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in nil } // timeout / refusal
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("um so this uh still gets tidied", settings: settings)
+        XCTAssertEqual(result.final, "so this still gets tidied")
+        XCTAssertTrue(result.cleanupApplied)
+    }
+
+    func testFillerStripperConservatism() {
+        XCTAssertEqual(FillerStripper.strip("Um, hello there"), "hello there")
+        XCTAssertEqual(FillerStripper.strip("I was, um, thinking"), "I was, thinking")
+        XCTAssertEqual(FillerStripper.strip("no fillers here"), "no fillers here")
+        XCTAssertEqual(FillerStripper.strip("the drummer plays the drum"), "the drummer plays the drum")
+        // Words the stripper must NOT touch without semantics: "like", "you know".
+        XCTAssertEqual(FillerStripper.strip("I like this, you know"), "I like this, you know")
+    }
+
+    func testFillersUntouchedWhenCleanupOff() async {
+        let cleaner = FakeCleaner()
+        let settings = ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("um exactly what I said", settings: settings)
+        XCTAssertEqual(result.final, "um exactly what I said")
+    }
+
     func testValidationRejectsIntroducedLinks() {
         // The exact beta failure: model invents a markdown link the speaker never said.
         XCTAssertNil(SmartCleanupCoordinator.validate(

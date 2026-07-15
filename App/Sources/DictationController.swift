@@ -480,12 +480,14 @@ final class DictationController {
         guard state == .idle || state == .finalizing, let format = analyzerFormat else { return }
         guard commandModeAvailable() else {
             NSLog("Internos: command mode unavailable (Apple Intelligence)")
+            indicator.showMessage("Command mode needs Apple Intelligence,\nwhich isn't available on this Mac.")
             statusItem.setState(.error)
             playSound("Basso")
             return
         }
         guard let selection = selectionProvider() else {
             NSLog("Internos: command mode — no selected text in the focused element")
+            indicator.showMessage("Select some text first, then hold the\ncommand key and speak an instruction.")
             statusItem.setState(.error)
             playSound("Basso")
             return

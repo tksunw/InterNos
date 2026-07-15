@@ -145,10 +145,12 @@ final class FakeIndicator: IndicatorPresenting {
     private(set) var shown: [IndicatorState] = []
     private(set) var hideCount = 0
     private(set) var partials: [String] = []
+    private(set) var messages: [String] = []
     func show(_ state: IndicatorState) { shown.append(state) }
     func hide() { hideCount += 1 }
     func pushLevel(_ level: CGFloat) {}
     func showPartial(_ text: String) { partials.append(text) }
+    func showMessage(_ text: String) { messages.append(text) }
 }
 
 // MARK: - TextInserter dependencies

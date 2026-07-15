@@ -112,18 +112,32 @@ struct ReplacementMatcher: Sendable {
         let output: String
     }
 
+    private struct CompactRule: Sendable {
+        let key: String
+        let output: String
+    }
+
     private let byFirstWord: [String: [Rule]]
+    /// Letter-run-insensitive fallback, bucketed by first character of the
+    /// squashed key so the per-token cost stays flat with large rule sets.
+    private let compactByFirstChar: [Character: [CompactRule]]
 
     var isEmpty: Bool { byFirstWord.isEmpty }
 
     init(rules: [(trigger: String, output: String)]) {
         var map: [String: [Rule]] = [:]
+        var compact: [Character: [CompactRule]] = [:]
         for rule in rules {
             let tokens = Self.normalizedTriggerTokens(rule.trigger)
             guard let first = tokens.first else { continue }
             map[first, default: []].append(Rule(tokens: tokens, output: rule.output))
+            let key = SnippetTable.compactKey(of: tokens)
+            if let firstChar = key.first {
+                compact[firstChar, default: []].append(CompactRule(key: key, output: rule.output))
+            }
         }
         byFirstWord = map.mapValues { $0.sorted { $0.tokens.count > $1.tokens.count } }
+        compactByFirstChar = compact.mapValues { $0.sorted { $0.key.count > $1.key.count } }
     }
 
     /// Locale-independent case folding + whitespace normalization, shared with
@@ -152,10 +166,10 @@ struct ReplacementMatcher: Sendable {
 
         var i = 0
         while i < tokens.count {
-            if let (rule, consumed) = match(at: i, tokens: tokens) {
+            if let (output, consumed) = match(at: i, tokens: tokens) {
                 flushRun(upTo: i)
                 // Punctuation immediately outside the phrase is preserved.
-                segments.append(.literal(tokens[i].leading + rule.output + tokens[i + consumed - 1].trailing))
+                segments.append(.literal(tokens[i].leading + output + tokens[i + consumed - 1].trailing))
                 i += consumed
             } else {
                 if runStart == nil { runStart = i }
@@ -166,21 +180,32 @@ struct ReplacementMatcher: Sendable {
         return segments.isEmpty ? [.text("")] : segments
     }
 
-    private func match(at i: Int, tokens: [TranscriptToken]) -> (Rule, Int)? {
-        guard let candidates = byFirstWord[tokens[i].core] else { return nil }
-        for rule in candidates {
-            let count = rule.tokens.count
-            guard i + count <= tokens.count else { continue }
-            var ok = true
-            for (offset, word) in rule.tokens.enumerated() {
-                let token = tokens[i + offset]
-                let isFirst = offset == 0
-                let isLast = offset == count - 1
-                guard token.core == word,
-                      isFirst || token.leading.isEmpty,
-                      isLast || token.trailing.isEmpty else { ok = false; break }
+    private func match(at i: Int, tokens: [TranscriptToken]) -> (output: String, consumed: Int)? {
+        if let candidates = byFirstWord[tokens[i].core] {
+            for rule in candidates {
+                let count = rule.tokens.count
+                guard i + count <= tokens.count else { continue }
+                var ok = true
+                for (offset, word) in rule.tokens.enumerated() {
+                    let token = tokens[i + offset]
+                    let isFirst = offset == 0
+                    let isLast = offset == count - 1
+                    guard token.core == word,
+                          isFirst || token.leading.isEmpty,
+                          isLast || token.trailing.isEmpty else { ok = false; break }
+                }
+                if ok { return (rule.output, count) }
             }
-            if ok { return (rule, count) }
+        }
+        // Letter-run-insensitive fallback: "t k sun w" must match "TK sun W" and
+        // "T. K. Sun W." the recognizer produces for spelled-letter triggers.
+        let piece = String(tokens[i].core.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        if let firstChar = piece.first, let candidates = compactByFirstChar[firstChar] {
+            for rule in candidates {
+                if let hit = TranscriptTokenizer.compactMatch(rule.key, at: i, tokens: tokens) {
+                    return (rule.output, hit.consumed)
+                }
+            }
         }
         return nil
     }
@@ -195,11 +220,27 @@ struct SnippetTable: Sendable {
     struct Entry: Sendable {
         let id: UUID
         let tokens: [String]
+        /// Squashed alphanumeric form ("t k sun w" → "tksunw") for letter-run-
+        /// insensitive matching: the recognizer merges and punctuates spelled
+        /// letters unpredictably ("TK sun W", "T. K. Sun W."), so token-wise
+        /// matching alone misses names built from letter sequences.
+        let compactKey: String
     }
 
     /// Sorted longest-first so the longest name wins.
     let names: [Entry]
     let contentByID: [UUID: String]
+
+    /// Folded alphanumerics only — the recognizer-proof comparison form. Empty
+    /// (= disabled) unless the name contains a single-character token: compact
+    /// matching exists for spelled-letter names, and applying it to ordinary
+    /// phrases would let "so on" match the word "soon".
+    static func compactKey(of tokens: [String]) -> String {
+        guard tokens.contains(where: { $0.count == 1 }) else { return "" }
+        return tokens.map { token in
+            String(token.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        }.joined()
+    }
 
     init(names: [Entry], contentByID: [UUID: String]) {
         self.names = names.sorted { $0.tokens.count > $1.tokens.count }
@@ -208,7 +249,10 @@ struct SnippetTable: Sendable {
 
     init(snippets: [(id: UUID, name: String, content: String)]) {
         self.init(
-            names: snippets.map { Entry(id: $0.id, tokens: ReplacementMatcher.normalizedTriggerTokens($0.name)) },
+            names: snippets.map {
+                let tokens = ReplacementMatcher.normalizedTriggerTokens($0.name)
+                return Entry(id: $0.id, tokens: tokens, compactKey: Self.compactKey(of: tokens))
+            },
             contentByID: Dictionary(uniqueKeysWithValues: snippets.map { ($0.id, $0.content) })
         )
     }

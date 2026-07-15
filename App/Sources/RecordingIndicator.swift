@@ -10,6 +10,9 @@ enum IndicatorState: Equatable {
     case hidden
     case recording
     case transcribing
+    /// Brief instructional text ("Select text first…") — invisible failures got
+    /// reported as "doesn't work", so failures must say why (v2 beta feedback).
+    case message
 }
 
 /// Rolling ring buffer of recent input levels, newest at the end. Drives the waveform.
@@ -113,6 +116,12 @@ struct RecordingIndicatorView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
                 }
+            case .message:
+                Text(preview.text)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
             case .hidden:
                 EmptyView()
             }
@@ -130,6 +139,8 @@ protocol IndicatorPresenting: AnyObject {
     /// Live transcript preview while recording (v2): the accumulated recognized
     /// text so far. Display only — never logged, never persisted.
     func showPartial(_ text: String)
+    /// Brief self-dismissing instructional text (failure reasons the user can act on).
+    func showMessage(_ text: String)
 }
 
 @MainActor
@@ -145,8 +156,24 @@ final class RecordingIndicator: IndicatorPresenting {
 
     func showPartial(_ text: String) { preview.text = text }
 
+    private var messageGeneration = 0
+
+    /// Shows brief instructional text, then auto-hides. Any newer show()/hide()
+    /// wins over the scheduled dismissal.
+    func showMessage(_ text: String) {
+        preview.text = text
+        show(.message)
+        messageGeneration += 1
+        let generation = messageGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, self.messageGeneration == generation else { return }
+            self.hide()
+        }
+    }
+
     func show(_ state: IndicatorState) {
         guard state != .hidden else { hide(); return }
+        messageGeneration += 1 // cancel any pending message auto-hide
         if state == .recording {
             meter.reset()
             preview.text = ""

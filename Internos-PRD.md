@@ -94,6 +94,12 @@ replacement output is never re-processed or sent to the model:
   default Off), one fresh `LanguageModelSession` per utterance, 2 s deadline,
   4,000-char input cap, output validation, soft fallback to deterministic text.
   Covers filler removal and self-correction ("backtrack") behavior.
+  **Off by default is intentional for 2.0** (decided 2026-07-15): the v2 beta cycle
+  surfaced five model-drift modes (translation of non-English input, fragment
+  completion, invented links, prose refusals, answered questions) only through
+  adversarial field testing. The validation gate degrades every failure to the
+  speaker's exact words, but the trust posture is verbatim-unless-asked. Any
+  future default change is a separate post-2.0 decision requiring extended soak.
 - **Personal dictionary / replacements** — deterministic post-transcription
   find-and-replace (the recognition layer is inert, per the spike), persisted in
   `~/Library/Application Support/<bundle id>/customizations.json`.

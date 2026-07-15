@@ -63,7 +63,11 @@ final class AppSettings {
         static let cleanupMode = "cleanupMode"
     }
 
-    /// Default Off: smart cleanup is opt-in until it clears beta validation.
+    /// Default Off — intentional for 2.0 (decided 2026-07-15), not provisional.
+    /// Beta testing kept surfacing new model-drift modes (translation, fragment
+    /// completion, invented links, prose refusals, answered questions); the
+    /// validation gate degrades all of them safely, but the trust posture is
+    /// verbatim-unless-asked. A default change is a separate post-2.0 decision.
     var cleanupMode: CleanupMode {
         get { CleanupMode(rawValue: defaults.string(forKey: Key.cleanupMode) ?? "") ?? .off }
         set { defaults.set(newValue.rawValue, forKey: Key.cleanupMode) }

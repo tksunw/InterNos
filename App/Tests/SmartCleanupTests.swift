@@ -215,6 +215,23 @@ final class SmartCleanupPipelineTests: XCTestCase {
             "Hola mundo, ¿cómo estás?")
     }
 
+    func testValidationRejectsAnswersToQuestions() {
+        // Beta field case: "are ya here for school?" came back answered, not cleaned.
+        let input = "Oi, are you here for school, love?"
+        XCTAssertNil(SmartCleanupCoordinator.validate("Yes, I am here for school.", input: input),
+                     "a question must stay a question")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("Are you here for school, love?", input: input),
+                       "Are you here for school, love?", "cleaning the question is fine")
+        // Answer-shaped opening without a question mark in play.
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "Yes, the server is here for maintenance.",
+            input: "tell me whether the server is here for maintenance"))
+        // The speaker's own yes/no openings stay legal.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "Yes, I'll be there at noon.", input: "yes I'll be there at noon"),
+            "Yes, I'll be there at noon.")
+    }
+
     func testModelCleanupGatedToEnglishRecognition() {
         // Beta-5 field report: Spanish dictation came back translated to English —
         // the cleanup model drifts under English instructions on non-English input.

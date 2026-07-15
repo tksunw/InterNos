@@ -57,6 +57,22 @@ final class ScratchThatTests: XCTestCase {
         XCTAssertFalse(DictationController.isScratchCommand("scratch"))
     }
 
+    func testLocalizedScratchPhrases() {
+        // Spanish, with recognizer diacritics and punctuation.
+        XCTAssertTrue(DictationController.isScratchCommand("Borra eso.", localeIdentifier: "es_US"))
+        XCTAssertTrue(DictationController.isScratchCommand("No, tacha eso.", localeIdentifier: "es_US"))
+        // French with the accented pronoun.
+        XCTAssertTrue(DictationController.isScratchCommand("Efface \u{00E7}a.", localeIdentifier: "fr_FR"))
+        // German umlaut variant folds too.
+        XCTAssertTrue(DictationController.isScratchCommand("L\u{00F6}sch das!", localeIdentifier: "de_DE"))
+        // English always works as a fallback regardless of recognition language.
+        XCTAssertTrue(DictationController.isScratchCommand("scratch that", localeIdentifier: "es_US"))
+        // Localized phrases don't leak across languages.
+        XCTAssertFalse(DictationController.isScratchCommand("borra eso", localeIdentifier: "en_US"))
+        // Ordinary sentences in the target language stay literal.
+        XCTAssertFalse(DictationController.isScratchCommand("quiero que borra eso ahora", localeIdentifier: "es_US"))
+    }
+
     func testScratchDeletesPreviousInsertion() async {
         let controller = await makeReadyController()
         await dictate(controller, "hello world", index: 1) // 11 chars inserted

@@ -451,7 +451,8 @@ final class DictationController {
         case .success(let transcript) where transcript.final.isEmpty:
             NSLog("Internos: empty transcript")
             updateUI(.error, "Basso")
-        case .success(let transcript) where Self.isScratchCommand(transcript.raw):
+        case .success(let transcript)
+            where Self.isScratchCommand(transcript.raw, localeIdentifier: AppSettings.shared.recognitionLocale):
             // "scratch that" (v2): delete the previous insertion instead of inserting.
             performScratch(updateUI: updateUI)
         case .success(let transcript):
@@ -580,16 +581,40 @@ final class DictationController {
         }
     }
 
-    /// An utterance ENDING in "scratch that", with at most two lead-in words,
+    /// Localized two-word undo phrases by language code. English is always accepted
+    /// as a fallback for bilingual users. Provisional translations — field feedback
+    /// welcome; extend the table rather than inventing new matching rules.
+    private static let scratchPhrases: [String: [(String, String)]] = [
+        "en": [("scratch", "that")],
+        "es": [("borra", "eso"), ("tacha", "eso")],
+        "fr": [("efface", "ca")],
+        "de": [("streich", "das"), ("losch", "das")],
+        "pt": [("apaga", "isso")],
+        "it": [("cancella", "quello")],
+    ]
+
+    /// An utterance ENDING in the undo phrase, with at most two lead-in words,
     /// triggers the voice undo — people say "Actually, scratch that." not the bare
     /// command (beta-4 field report). Longer sentences containing the phrase stay
-    /// literal text. Checked against the RAW transcript so replacements can't hijack it.
-    static func isScratchCommand(_ raw: String) -> Bool {
+    /// literal text. Checked against the RAW transcript so replacements can't hijack
+    /// it; diacritic-insensitive so recognizer accent variants ("efface ça") match.
+    static func isScratchCommand(_ raw: String, localeIdentifier: String = "en") -> Bool {
         let tokens = TranscriptTokenizer.tokenize(raw)
         guard tokens.count >= 2, tokens.count <= 4 else { return false }
-        let last = tokens[tokens.count - 1]
+        func folded(_ token: TranscriptToken) -> String {
+            token.core.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        }
+        let last = folded(tokens[tokens.count - 1])
         let previous = tokens[tokens.count - 2]
-        return previous.core == "scratch" && previous.trailing.isEmpty && last.core == "that"
+        guard previous.trailing.isEmpty else { return false }
+        let previousWord = folded(previous)
+
+        let language = String(localeIdentifier.lowercased().prefix(2))
+        var phrases = scratchPhrases["en"] ?? []
+        if language != "en", let localized = scratchPhrases[language] {
+            phrases += localized
+        }
+        return phrases.contains { $0.0 == previousWord && $0.1 == last }
     }
 
     private func performScratch(updateUI: (AppState, String?) -> Void) {

@@ -111,7 +111,11 @@ final class DictationController {
         self.customizations = store
         self.processingSettings = processingSettings ?? {
             guard let store else { return ProcessingSettings() }
-            return store.processingSnapshot(cleanupMode: AppSettings.shared.cleanupMode)
+            // Model cleanup only for English recognition; other languages take the
+            // deterministic path (the model translates under English instructions).
+            let mode = AppSettings.shared.cleanupMode
+                .effective(forLocaleIdentifier: AppSettings.shared.recognitionLocale)
+            return store.processingSnapshot(cleanupMode: mode)
         }
         self.playSound = playSound ?? { name in
             guard AppSettings.shared.playSounds else { return }

@@ -170,6 +170,16 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertEqual(result.final, "um exactly what I said")
     }
 
+    func testModelCleanupGatedToEnglishRecognition() {
+        // Beta-5 field report: Spanish dictation came back translated to English —
+        // the cleanup model drifts under English instructions on non-English input.
+        XCTAssertEqual(CleanupMode.light.effective(forLocaleIdentifier: "es_US"), .off)
+        XCTAssertEqual(CleanupMode.polished.effective(forLocaleIdentifier: "de_DE"), .off)
+        XCTAssertEqual(CleanupMode.light.effective(forLocaleIdentifier: "en_US"), .light)
+        XCTAssertEqual(CleanupMode.polished.effective(forLocaleIdentifier: "en_GB"), .polished)
+        XCTAssertEqual(CleanupMode.off.effective(forLocaleIdentifier: "en_US"), .off)
+    }
+
     func testValidationRejectsIntroducedLinks() {
         // The exact beta failure: model invents a markdown link the speaker never said.
         XCTAssertNil(SmartCleanupCoordinator.validate(

@@ -26,7 +26,8 @@ enum CleanupPrompt {
     - When the speaker corrects themselves (for example "Tuesday, actually Wednesday"), \
     keep only the corrected value.
     - Preserve paragraph boundaries present in the input.
-    - Do not translate. Do not change the tone beyond what the selected level permits.
+    - Do not translate. Always respond in the same language as the input text.
+    - Do not change the tone beyond what the selected level permits.
     """
 
     private static let light = """

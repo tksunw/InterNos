@@ -155,6 +155,10 @@ private struct ProcessingSettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Tidies dictated text on this Mac using Apple Intelligence — removes filler, false starts, and self-corrections (Light), or smooths fragments into prose (Polished). Nothing leaves the Mac; snippets and personal-dictionary output are never altered.")
+                    if !AppSettings.shared.recognitionLocale.lowercased().hasPrefix("en") {
+                        Text("Smart cleanup currently applies to English dictation only — with the recognition language set to \(Locale.current.localizedString(forIdentifier: AppSettings.shared.recognitionLocale) ?? AppSettings.shared.recognitionLocale), dictation is inserted as recognized.")
+                            .foregroundStyle(.orange)
+                    }
                     if let unavailableReason {
                         Text(unavailableReason).foregroundStyle(.orange)
                     }

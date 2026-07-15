@@ -164,6 +164,12 @@ struct SmartCleanupCoordinator: SmartCleaning {
             CharacterSet.controlCharacters.contains(scalar) && scalar.value != 9 && scalar.value != 10
         }
         guard !hasForbiddenControls else { return nil }
+        // A URL or markdown link the speaker never said is a hallucination signature
+        // (beta field report: a fabricated "[handle here](https://…)" completion).
+        let inputFolded = input.lowercased()
+        for marker in ["http://", "https://", "]("] where value.lowercased().contains(marker) && !inputFolded.contains(marker) {
+            return nil
+        }
         return value
     }
 }

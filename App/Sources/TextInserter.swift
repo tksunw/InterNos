@@ -261,24 +261,29 @@ final class TextInserter: TextInserting {
         }
     }
 
-    /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the focused
-    /// element, which inserts at the caret or replaces the current selection.
-    /// Returns false when the focused element belongs to a different process, or
-    /// doesn't support settable selected text (web areas in some apps, terminals) —
-    /// the caller falls back to the clipboard swap.
-    static func accessibilityInsert(_ text: String, targetPID: pid_t) -> Bool {
+    /// The focused element of a specific app, via its per-app accessibility element.
+    /// The systemwide kAXFocusedUIElementAttribute query fails with cannotComplete
+    /// (-25204) on macOS 26 even for trusted processes; the per-app route works
+    /// (verified empirically, v2 beta-2). A short messaging timeout keeps a stuck
+    /// target app from stalling the event-tap callback that triggers these reads.
+    private static func focusedElement(ofApplication pid: pid_t) -> AXUIElement? {
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, 0.5)
         var focusedRef: CFTypeRef?
-        let systemWide = AXUIElementCreateSystemWide()
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
               let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
-            return false
+            return nil
         }
-        let element = unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
+        return unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
+    }
 
-        var elementPID: pid_t = 0
-        guard AXUIElementGetPid(element, &elementPID) == .success, elementPID == targetPID else {
-            return false
-        }
+    /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the target
+    /// app's focused element, which inserts at the caret or replaces the current
+    /// selection. Returns false when the element doesn't support settable selected
+    /// text (web areas in some apps, terminals) — the caller falls back to the
+    /// clipboard swap.
+    static func accessibilityInsert(_ text: String, targetPID: pid_t) -> Bool {
+        guard let element = focusedElement(ofApplication: targetPID) else { return false }
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
               settable.boolValue else {
@@ -287,25 +292,18 @@ final class TextInserter: TextInserting {
         return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
     }
 
-    /// Reads the selected text of the focused element (command mode). Called only on
-    /// an explicit user invocation — never for ambient context. Returns nil when
-    /// nothing is selected or the element doesn't expose a selection.
+    /// Reads the selected text of the frontmost app's focused element (command mode).
+    /// Called only on an explicit user invocation — never for ambient context.
+    /// Returns nil when nothing is selected or the element doesn't expose a selection.
     static func accessibilitySelectedText() -> (text: String, pid: pid_t)? {
-        var focusedRef: CFTypeRef?
-        let systemWide = AXUIElementCreateSystemWide()
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
-            return nil
-        }
-        let element = unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
-
-        var elementPID: pid_t = 0
-        guard AXUIElementGetPid(element, &elementPID) == .success else { return nil }
+        guard let frontmost = NSWorkspace.shared.frontmostApplication else { return nil }
+        let pid = frontmost.processIdentifier
+        guard let element = focusedElement(ofApplication: pid) else { return nil }
         var selectedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedRef) == .success,
               let selected = selectedRef as? String, !selected.isEmpty else {
             return nil
         }
-        return (selected, elementPID)
+        return (selected, pid)
     }
 }

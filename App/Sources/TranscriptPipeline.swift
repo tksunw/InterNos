@@ -77,14 +77,17 @@ struct TranscriptPipeline: TranscriptProcessing {
         var segments = TranscriptCommandParser.parse(raw, snippets: settings.snippets)
         var cleanupApplied = false
 
-        if settings.cleanupMode != .off, let cleaner {
-            for index in segments.indices {
-                guard case .text(let original) = segments[index] else { continue }
-                if let cleaned = await cleaner.clean(original, mode: settings.cleanupMode),
-                   cleaned != original {
-                    segments[index] = .text(cleaned)
-                    cleanupApplied = true
-                }
+        // Cleanup runs only when the utterance is one plain text segment. Commands
+        // and snippets punch holes in the text, and the model, handed a dangling
+        // fragment like "my github handle is", invents completions for it — a beta
+        // field report saw a fabricated markdown link. Structured utterances take
+        // the deterministic path.
+        if settings.cleanupMode != .off, let cleaner,
+           segments.count == 1, case .text(let original) = segments[0] {
+            if let cleaned = await cleaner.clean(original, mode: settings.cleanupMode),
+               cleaned != original {
+                segments[0] = .text(cleaned)
+                cleanupApplied = true
             }
         }
 

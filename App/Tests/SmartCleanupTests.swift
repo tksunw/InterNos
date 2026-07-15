@@ -93,8 +93,10 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertEqual(result.raw, "um we use uh cube control for deployments", "raw preserved for recovery")
     }
 
-    func testSnippetContentBypassesCleanup() async {
-        // Cross-feature case 2: only ordinary segments reach the model.
+    func testUtteranceWithSnippetSkipsCleanupEntirely() async {
+        // Cleanup on fragments around a snippet made the model invent completions
+        // (beta field report: a fabricated markdown link). A structured utterance
+        // takes the deterministic path — the model sees nothing at all.
         let id = UUID()
         let table = SnippetTable(snippets: [(id, "support response", "Secret exact\ncontent ✨")])
         let cleaner = FakeCleaner()
@@ -103,18 +105,40 @@ final class SmartCleanupPipelineTests: XCTestCase {
 
         let result = await pipeline(cleaner).process("please use snippet support response thanks", settings: settings)
 
-        XCTAssertEqual(result.final, "PLEASE USE Secret exact\ncontent ✨ THANKS")
-        for input in cleaner.inputs {
-            XCTAssertFalse(input.contains("Secret"), "snippet content must never enter a model prompt")
-        }
+        XCTAssertEqual(result.final, "please use Secret exact\ncontent ✨ thanks")
+        XCTAssertTrue(cleaner.inputs.isEmpty, "no fragment may reach the model when protected segments exist")
+        XCTAssertFalse(result.cleanupApplied)
     }
 
-    func testLiteralEscapeBypassesCleanup() async {
+    func testUtteranceWithCommandSkipsCleanupEntirely() async {
         let cleaner = FakeCleaner()
         cleaner.transform = { $0.uppercased() }
         let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
         let result = await pipeline(cleaner).process("say literal new line loudly", settings: settings)
-        XCTAssertEqual(result.final, "SAY new line LOUDLY", "the escaped phrase stays exact")
+        XCTAssertEqual(result.final, "say new line loudly", "deterministic path, escaped phrase exact")
+        XCTAssertTrue(cleaner.inputs.isEmpty)
+    }
+
+    func testPlainUtteranceStillGetsCleanup() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "Cleaned up nicely." }
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("um so cleaned up nicely", settings: settings)
+        XCTAssertEqual(result.final, "Cleaned up nicely.")
+        XCTAssertTrue(result.cleanupApplied)
+    }
+
+    func testValidationRejectsIntroducedLinks() {
+        // The exact beta failure: model invents a markdown link the speaker never said.
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "My GitHub handle is [handle here](https://github.com/username)",
+            input: "my github handle is"))
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "see https://example.com for details", input: "see the site for details"))
+        // URLs the speaker actually dictated survive.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "Go to https://example.com now.", input: "go to https://example.com now"),
+            "Go to https://example.com now.")
     }
 
     func testCleanupTimeoutStillRendersCommandsReplacementsSnippets() async {

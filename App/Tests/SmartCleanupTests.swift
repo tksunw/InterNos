@@ -35,7 +35,7 @@ final class SmartCleanupCoordinatorTests: XCTestCase {
         let coordinator = SmartCleanupCoordinator(cleaner: cleaner)
         let big = String(repeating: "a", count: SmartCleanupCoordinator.maxInputLength + 1)
         let result = await coordinator.clean(big, mode: .light)
-        XCTAssertNil(result, "inputs above 4,000 characters continue deterministically")
+        XCTAssertNil(result, "inputs above the cap continue deterministically")
         XCTAssertTrue(cleaner.inputs.isEmpty)
     }
 
@@ -158,8 +158,37 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertTrue(result.cleanupApplied)
     }
 
+    func testValidationRejectsAnswersToLongDictation() {
+        // The reported failure: on a long utterance the model replies instead of
+        // revising. Word overlap can't catch it (a reply reuses the speaker's own
+        // vocabulary, and a long input makes almost any short output score ~1.0),
+        // so the length floor is what rejects it.
+        let input = """
+        so I was thinking about the deployment window for next week and whether we \
+        should move the database migration ahead of the app rollout or leave it where \
+        it is given the load we saw on Tuesday afternoon
+        """
+        XCTAssertGreaterThanOrEqual(
+            SmartCleanupCoordinator.wordOverlap(output: "Move the migration first.", input: input), 0.5,
+            "overlap alone accepts the answer — this is why the floor exists")
+        XCTAssertNil(SmartCleanupCoordinator.validate("Move the migration first.", input: input))
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "You should leave the migration where it is.", input: input))
+        // A real Light-mode revision of the same utterance still passes.
+        XCTAssertNotNil(SmartCleanupCoordinator.validate(
+            """
+            I was thinking about the deployment window for next week, and whether we \
+            should move the database migration ahead of the app rollout or leave it \
+            where it is, given the load we saw on Tuesday afternoon.
+            """, input: input))
+        // Short filler-dense utterances stay legal despite losing most characters.
+        XCTAssertEqual(SmartCleanupCoordinator.validate("Hello.", input: "um, uh, so, yeah, hello"), "Hello.")
+    }
+
     func testFillerStripperConservatism() {
         XCTAssertEqual(FillerStripper.strip("Um, hello there"), "hello there")
+        // The recognizer varies the spelling by how long the sound was held.
+        XCTAssertEqual(FillerStripper.strip("Ummm, uhh, hmmm, okay"), "okay")
         XCTAssertEqual(FillerStripper.strip("I was, um, thinking"), "I was, thinking")
         XCTAssertEqual(FillerStripper.strip("no fillers here"), "no fillers here")
         XCTAssertEqual(FillerStripper.strip("the drummer plays the drum"), "the drummer plays the drum")
@@ -230,6 +259,25 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertEqual(SmartCleanupCoordinator.validate(
             "Yes, I'll be there at noon.", input: "yes I'll be there at noon"),
             "Yes, I'll be there at noon.")
+    }
+
+    func testValidationRejectsAnswersToUnpunctuatedQuestions() {
+        // The recognizer drops the question mark often enough that punctuation
+        // alone can't be the test: shape has to come from the opening word.
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "The deploy window closes at five.",
+            input: "when does the deploy window close"))
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "We should move the migration first.",
+            input: "should we move the migration first"))
+        // Cleaning the question — with or without restoring the mark — is fine.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "When does the deploy window close?", input: "when does the deploy window close"),
+            "When does the deploy window close?")
+        // Statements that merely open with an interrogative word keep working.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "How we got here is a long story.", input: "how we got here is a long story"),
+            "How we got here is a long story.")
     }
 
     func testModelCleanupGatedToEnglishRecognition() {

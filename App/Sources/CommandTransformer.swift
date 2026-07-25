@@ -41,7 +41,12 @@ struct FoundationModelTransformer: TextTransforming {
         guard CleanupAvailability.isAvailable else { return nil }
         let session = LanguageModelSession(instructions: CommandPrompt.instructions)
         do {
-            return try await session.respond(to: CommandPrompt.prompt(instruction: instruction, text: text)).content
+            // Greedy sampling: the same selection and the same spoken instruction
+            // should produce the same rewrite twice running.
+            return try await session.respond(
+                to: CommandPrompt.prompt(instruction: instruction, text: text),
+                options: GenerationOptions(sampling: .greedy)
+            ).content
         } catch {
             NSLog("Internos: command transform model error (\(type(of: error)))")
             return nil

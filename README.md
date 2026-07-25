@@ -67,7 +67,7 @@ Settings → Processing offers an optional cleanup pass powered by Apple's on-de
 - **Light** — removes "um"/"uh", accidental repetition, and false starts, and applies self-corrections ("Tuesday, actually Wednesday" → "Wednesday").
 - **Polished** — Light, plus smoothing fragments into readable prose.
 
-Cleanup is bounded (two-second deadline, 4,000-character cap) and always fails back to the deterministic text — a model hiccup can never eat your dictation. Snippet contents and replacement outputs never enter the model prompt. Requires an Apple-Intelligence-eligible Mac; without one, Light and Polished show as unavailable and plain dictation is unaffected.
+Cleanup is bounded (a deadline that scales with the length of the utterance, 1,000-character cap) and always fails back to the deterministic text — a model hiccup can never eat your dictation. Longer utterances skip the model and get filler removal only. Snippet contents and replacement outputs never enter the model prompt. Polished needs an Apple-Intelligence-eligible Mac; Light falls back to deterministic filler removal, which runs on any supported Mac.
 
 ## Command mode (v2)
 

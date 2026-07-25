@@ -58,6 +58,14 @@ enum CleanupPrompt {
         case .polished: common + "\n\n" + polished
         }
     }
+
+    /// The dictation must arrive as labelled data, never as the prompt itself.
+    /// Handed the bare text, the model reads a long utterance as a request and
+    /// replies to it (field report); the command-mode prompt has always framed
+    /// its input this way.
+    static func prompt(for text: String) -> String {
+        "Revise the dictation between the markers. Return only the revised text.\n\n<<<DICTATION\n\(text)\nDICTATION>>>"
+    }
 }
 
 /// Deterministic filler-word removal — the zero-risk subset of Light cleanup.
@@ -66,12 +74,21 @@ enum CleanupPrompt {
 /// path fails. Only non-word vocalizations: stripping "like" or "you know"
 /// needs semantics only the model has.
 enum FillerStripper {
-    private static let fillers: Set<String> = ["um", "uh", "uhm", "umm", "er", "erm", "hmm", "mhm"]
+    private static let fillers: Set<String> = ["um", "uh", "uhm", "er", "erm", "hm", "mhm"]
+
+    /// The recognizer spells hesitations at whatever length it heard them ("uhh",
+    /// "ummm", "hmmm"), so compare the letter-collapsed form. No real word
+    /// collapses onto this list.
+    static func isFiller(_ core: String) -> Bool {
+        if fillers.contains(core) { return true }
+        let collapsed = core.reduce(into: "") { if $0.last != $1 { $0.append($1) } }
+        return fillers.contains(collapsed)
+    }
 
     static func strip(_ text: String) -> String {
         let tokens = TranscriptTokenizer.tokenize(text)
-        guard tokens.contains(where: { fillers.contains($0.core) }) else { return text }
-        let kept = tokens.filter { !fillers.contains($0.core) }
+        guard tokens.contains(where: { isFiller($0.core) }) else { return text }
+        let kept = tokens.filter { !isFiller($0.core) }
         return kept.map { String(text[$0.range]) }.joined(separator: " ")
     }
 }
@@ -105,7 +122,12 @@ struct FoundationModelCleaner: SmartCleaning {
         guard CleanupAvailability.isAvailable else { return nil }
         let session = LanguageModelSession(instructions: CleanupPrompt.instructions(for: mode))
         do {
-            return try await session.respond(to: text).content
+            // Greedy sampling: cleanup is an edit, not a creative task, and default
+            // sampling made the same utterance clean once and drift the next time.
+            return try await session.respond(
+                to: CleanupPrompt.prompt(for: text),
+                options: GenerationOptions(sampling: .greedy)
+            ).content
         } catch {
             // Refusals, guardrails, context exhaustion, cancellation: soft failure.
             // Log the error type only — messages could echo prompt content.
@@ -118,7 +140,14 @@ struct FoundationModelCleaner: SmartCleaning {
 /// Wraps a cleaner with the product's safety bounds: input size cap, hard
 /// deadline, and output validation. This is what the pipeline talks to.
 struct SmartCleanupCoordinator: SmartCleaning {
-    static let maxInputLength = 4000
+    /// A faithful revision emits roughly as many tokens as it was given, so the
+    /// cap has to be something the model can actually finish inside the deadline.
+    /// At 4,000 characters it could not: the only outputs that beat the clock were
+    /// short ones, i.e. the drifted answers, and the faithful revisions were the
+    /// ones thrown away. The cap and the deadline are one setting, not two.
+    /// ponytail: 1,000 chars ≈ 4 s worst case; retune from the "cleanup applied"
+    /// log lines (they carry elapsed + char counts) if real hardware differs.
+    static let maxInputLength = 1000
 
     var cleaner: any SmartCleaning
     var deadline: Duration = .seconds(2)
@@ -130,7 +159,10 @@ struct SmartCleanupCoordinator: SmartCleaning {
             return nil
         }
         let start = ContinuousClock.now
-        let raw = await Self.withDeadline(deadline) { [cleaner] in
+        // Generation time scales with length; a fixed deadline would keep biasing
+        // the race toward whatever output was shortest.
+        let limit = deadline + .milliseconds(text.count * 2)
+        let raw = await Self.withDeadline(limit) { [cleaner] in
             await cleaner.clean(text, mode: mode)
         }
         let elapsed = ContinuousClock.now - start
@@ -180,6 +212,12 @@ struct SmartCleanupCoordinator: SmartCleaning {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
         guard value.count <= Int(Double(input.count) * 1.5) + 128 else { return nil }
+        // Cleanup edits; it never answers or summarizes. An output that dropped half
+        // the speaker's text is a reply, not a revision — the failure mode reported
+        // on long dictations, where every other check gets weaker as input grows.
+        // The 40-character allowance keeps short, filler-dense utterances legal
+        // ("um, uh, so, yeah, hello" → "Hello.").
+        guard value.count * 2 + 40 >= input.count else { return nil }
         let hasForbiddenControls = value.unicodeScalars.contains { scalar in
             CharacterSet.controlCharacters.contains(scalar) && scalar.value != 9 && scalar.value != 10
         }
@@ -204,7 +242,7 @@ struct SmartCleanupCoordinator: SmartCleaning {
         // "are ya here for school?" came back "Yes, I am here for school.").
         // A question stays a question, and an answer-shaped opening the speaker
         // didn't dictate is a conversational response, not a cleanup.
-        if input.contains("?") && !value.contains("?") { return nil }
+        if isQuestionShaped(input) && !isQuestionShaped(value) { return nil }
         let inputStart = inputFolded.trimmingCharacters(in: .whitespacesAndNewlines)
         for prefix in ["yes,", "yes.", "no,", "no.", "sure,", "of course", "certainly"]
         where outputFolded.hasPrefix(prefix) && !inputStart.hasPrefix(String(prefix.prefix(3))) {
@@ -212,6 +250,23 @@ struct SmartCleanupCoordinator: SmartCleaning {
         }
         return value
     }
+
+    /// Question shape, not question punctuation: the recognizer drops the mark
+    /// often enough that "should we ship today" reached the model as a plain
+    /// sentence and came back answered. Opening word is the reliable signal.
+    /// The rule only ever fires when the output LOSES the shape, so ordinary
+    /// sentences that happen to start with one of these are unaffected.
+    static func isQuestionShaped(_ text: String) -> Bool {
+        if text.contains("?") { return true }
+        guard let first = TranscriptTokenizer.tokenize(text).first else { return false }
+        return interrogatives.contains(first.core)
+    }
+
+    private static let interrogatives: Set<String> = [
+        "who", "whom", "whose", "what", "when", "where", "why", "how", "which",
+        "is", "are", "was", "were", "am", "do", "does", "did", "can", "could",
+        "should", "would", "will", "shall", "have", "has", "had", "may", "might",
+    ]
 
     static let refusalMarkers = [
         "as a chatbot", "as an ai", "as a language model", "i cannot", "i can not",

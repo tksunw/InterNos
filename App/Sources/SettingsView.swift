@@ -150,17 +150,20 @@ private struct ProcessingSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(!modelAvailable && cleanupMode == .off)
                 .accessibilityLabel("Smart cleanup mode")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Tidies dictated text on this Mac using Apple Intelligence — removes filler, false starts, and self-corrections (Light), or smooths fragments into prose (Polished). Nothing leaves the Mac; snippets and personal-dictionary output are never altered.")
+                    Text("Tidies dictated text on this Mac — removes filler, false starts, and self-corrections (Light), or smooths fragments into prose (Polished). Nothing leaves the Mac; snippets and personal-dictionary output are never altered.")
+                    Text("Dictation that includes a spoken command or a snippet is tidied by removing filler words only, so the exact text you asked for is never rewritten.")
                     if !AppSettings.shared.recognitionLocale.lowercased().hasPrefix("en") {
                         Text("Smart cleanup currently applies to English dictation only — with the recognition language set to \(Locale.current.localizedString(forIdentifier: AppSettings.shared.recognitionLocale) ?? AppSettings.shared.recognitionLocale), dictation is inserted as recognized.")
                             .foregroundStyle(.orange)
                     }
                     if let unavailableReason {
-                        Text(unavailableReason).foregroundStyle(.orange)
+                        // Light degrades to deterministic filler removal, which needs no
+                        // model at all — say what still works rather than only what doesn't.
+                        Text("\(unavailableReason) Light still removes filler words (\u{201C}um\u{201D}, \u{201C}uh\u{201D}); Polished needs the model.")
+                            .foregroundStyle(.orange)
                     }
                 }
                 .font(.caption)
@@ -180,10 +183,12 @@ private struct ProcessingSettingsView: View {
 
     private func refreshAvailability() {
         unavailableReason = CleanupAvailability.explanation
-        // Light/Polished need the model; snap back to Off if it went away.
-        if unavailableReason != nil, cleanupMode != .off {
-            cleanupMode = .off
-            AppSettings.shared.cleanupMode = .off
+        // Only Polished actually needs the model: without it, Light is the
+        // deterministic filler stripper, which every Mac can run. Snapping the
+        // whole feature to Off made filler removal hostage to Apple Intelligence.
+        if unavailableReason != nil, cleanupMode == .polished {
+            cleanupMode = .light
+            AppSettings.shared.cleanupMode = .light
         }
     }
 

@@ -83,7 +83,7 @@ nav.toc a:hover { text-decoration: underline; }
 
 <h2 id="what">What Internos is</h2>
 <p>Internos is a macOS menu bar utility for voice dictation. Hold a key, speak, release, and your words appear at the cursor in whatever app you're using. All speech recognition and text processing runs on your Mac using Apple's built-in frameworks. There is no cloud service, no account, and no network traffic in the dictation path.</p>
-<p>Requirements: macOS 26 (Tahoe) or later, Apple Silicon. The optional AI features (smart cleanup and command mode) also need Apple Intelligence enabled in System Settings.</p>
+<p>Requirements: macOS 26 (Tahoe) or later, Apple Silicon. Command mode and the Polished cleanup level also need Apple Intelligence enabled in System Settings; everything else, filler removal included, runs without it.</p>
 
 <h2 id="start">Getting started</h2>
 
@@ -158,7 +158,7 @@ nav.toc a:hover { text-decoration: underline; }
 <p>Both replacements and snippets can be exported to a JSON file and imported on another Mac (Merge keeps existing entries on conflict; Replace swaps everything after validating the file).</p>
 
 <h2 id="cleanup">Smart cleanup</h2>
-<p>Cleanup tidies your dictation after recognition, entirely on-device via Apple Intelligence. Choose a level in <strong>Settings → Processing</strong>:</p>
+<p>Cleanup tidies your dictation after recognition, entirely on this Mac. Choose a level in <strong>Settings → Processing</strong>:</p>
 <ul>
 <li><strong>Off</strong> (default): exactly what you said.</li>
 <li><strong>Light</strong>: removes filler ("um", "uh"), accidental repetition, and false starts, and applies self-corrections. Say "meet Tuesday, actually Wednesday" and you get "meet Wednesday".</li>
@@ -167,11 +167,12 @@ nav.toc a:hover { text-decoration: underline; }
 <p>Rules that keep cleanup safe:</p>
 <ul>
 <li>Utterances containing snippets or spoken commands never go through the AI model. They get deterministic filler removal only ("um"/"uh"-class sounds), so the model can never invent text around your snippets.</li>
-<li>If the model is slow (over two seconds) or produces something suspicious, Internos falls back to your exact words plus filler removal. A cleanup failure never loses a dictation.</li>
+<li>Long utterances (over roughly 1,000 characters) skip the model and get filler removal only. Asking the model for a faithful revision of a long dictation takes longer than it is worth waiting for, and rushing it was how the model ended up answering dictations instead of tidying them.</li>
+<li>If the model is slow or produces something suspicious — a reply rather than a revision, a link you never said, a refusal — Internos falls back to your exact words plus filler removal. A cleanup failure never loses a dictation.</li>
 <li>Cleanup currently applies to English dictation only. Other languages are inserted exactly as recognized.</li>
 <li>Your original words are always recoverable: when cleanup changed the text, the menu shows <strong>Copy Last Raw Dictation</strong>.</li>
 </ul>
-<p>Cleanup needs an Apple-Intelligence-eligible Mac. Without one, Light and Polished show as unavailable and dictation is unaffected.</p>
+<p>Polished needs an Apple-Intelligence-eligible Mac. Without one it shows as unavailable, and Light becomes plain filler removal, which works on any Mac that runs Internos.</p>
 
 <h2 id="commandmode">Command mode</h2>
 <p>Command mode rewrites text you've selected, using a spoken instruction. It works in any app that exposes its text to macOS accessibility.</p>
@@ -230,7 +231,7 @@ nav.toc a:hover { text-decoration: underline; }
 <p><strong>Text doesn't insert, error sound plays.</strong> Usually one of: a password field has focus (Secure Input; Internos refuses by design), you switched apps before the text landed, or Accessibility permission was revoked. In every case the transcript is on the clipboard and in the recovery menu.</p>
 <p><strong>Command mode says "Select some text first" although text is selected.</strong> The frontmost app doesn't expose its selection to macOS accessibility. Most native apps do; some Electron apps and browsers don't. Try it in TextEdit to confirm command mode itself works.</p>
 <p><strong>Snippet or replacement doesn't fire.</strong> Check it's enabled in Customizations, and say the name the way you defined it. For spelled-letter names, variants are matched automatically.</p>
-<p><strong>Cleanup does nothing.</strong> Check the level in Settings → Processing, that Apple Intelligence is enabled, and that the recognition language is English. Utterances containing snippets or commands intentionally get filler removal only.</p>
+<p><strong>Cleanup does nothing.</strong> Check the level in Settings → Processing — it ships <strong>Off</strong>, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 1,000 characters, intentionally get filler removal only.</p>
 <p><strong>After an update, old bugs are still there.</strong> Quit and relaunch: replacing the app in Applications does not restart the running copy. Check the version via the About panel.</p>
 
 <h2 id="privacy">Privacy in one paragraph</h2>

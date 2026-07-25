@@ -6,7 +6,7 @@
 
 Internos is a macOS menu bar utility for voice dictation. Hold a key, speak, release, and your words appear at the cursor in whatever app you're using. All speech recognition and text processing runs on your Mac using Apple's built-in frameworks. There is no cloud service, no account, and no network traffic in the dictation path.
 
-Requirements: macOS 26 (Tahoe) or later, Apple Silicon. The optional AI features (smart cleanup and command mode) also need Apple Intelligence enabled in System Settings.
+Requirements: macOS 26 (Tahoe) or later, Apple Silicon. Command mode and the Polished cleanup level also need Apple Intelligence enabled in System Settings; everything else, filler removal included, runs without it.
 
 ## Getting started
 
@@ -101,7 +101,7 @@ Both replacements and snippets can be exported to a JSON file and imported on an
 
 ## Smart cleanup
 
-Cleanup tidies your dictation after recognition, entirely on-device via Apple Intelligence. Choose a level in **Settings → Processing**:
+Cleanup tidies your dictation after recognition, entirely on this Mac. Choose a level in **Settings → Processing**:
 
 - **Off** (default): exactly what you said.
 - **Light**: removes filler ("um", "uh"), accidental repetition, and false starts, and applies self-corrections. Say "meet Tuesday, actually Wednesday" and you get "meet Wednesday".
@@ -110,11 +110,12 @@ Cleanup tidies your dictation after recognition, entirely on-device via Apple In
 Rules that keep cleanup safe:
 
 - Utterances containing snippets or spoken commands never go through the AI model. They get deterministic filler removal only ("um"/"uh"-class sounds), so the model can never invent text around your snippets.
-- If the model is slow (over two seconds) or produces something suspicious, Internos falls back to your exact words plus filler removal. A cleanup failure never loses a dictation.
+- Long utterances (over roughly 1,000 characters) skip the model and get filler removal only. Asking the model for a faithful revision of a long dictation takes longer than it is worth waiting for, and rushing it was how the model ended up answering dictations instead of tidying them.
+- If the model is slow or produces something suspicious — a reply rather than a revision, a link you never said, a refusal — Internos falls back to your exact words plus filler removal. A cleanup failure never loses a dictation.
 - Cleanup currently applies to English dictation only. Other languages are inserted exactly as recognized.
 - Your original words are always recoverable: when cleanup changed the text, the menu shows **Copy Last Raw Dictation**.
 
-Cleanup needs an Apple-Intelligence-eligible Mac. Without one, Light and Polished show as unavailable and dictation is unaffected.
+Polished needs an Apple-Intelligence-eligible Mac. Without one it shows as unavailable, and Light becomes plain filler removal, which works on any Mac that runs Internos.
 
 ## Command mode
 
@@ -189,7 +190,7 @@ Replacements and snippets: search, add, edit, enable or disable, delete, and Imp
 
 **Snippet or replacement doesn't fire.** Check it's enabled in Customizations, and say the name the way you defined it. For spelled-letter names, variants are matched automatically.
 
-**Cleanup does nothing.** Check the level in Settings → Processing, that Apple Intelligence is enabled, and that the recognition language is English. Utterances containing snippets or commands intentionally get filler removal only.
+**Cleanup does nothing.** Check the level in Settings → Processing — it ships **Off**, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 1,000 characters, intentionally get filler removal only.
 
 **After an update, old bugs are still there.** Quit and relaunch: replacing the app in Applications does not restart the running copy. Check the version via the About panel.
 

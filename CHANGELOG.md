@@ -4,7 +4,7 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-07-26
 
 ### Added
 - Command mode: select text anywhere, hold the command key (default Right
@@ -211,6 +211,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[2.0.0]: https://github.com/tksunw/InterNos/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/tksunw/InterNos/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/tksunw/InterNos/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/tksunw/InterNos/compare/v1.0.7...v1.0.8

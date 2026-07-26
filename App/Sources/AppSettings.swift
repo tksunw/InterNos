@@ -5,6 +5,10 @@ import CoreGraphics
 import Foundation
 import ServiceManagement
 
+/// Shared with TranscriptionEngine's Sendable locale provider, which reads
+/// UserDefaults directly (it can't touch the MainActor-bound AppSettings).
+let recognitionLocaleKey = "recognitionLocale"
+
 enum ActivationMode: String, CaseIterable, Identifiable {
     case pushToTalk
     case toggle
@@ -59,10 +63,30 @@ final class AppSettings {
         static let cleanupMode = "cleanupMode"
     }
 
-    /// Default Off: smart cleanup is opt-in until it clears beta validation.
+    /// Default Off — intentional for 2.0 (decided 2026-07-15), not provisional.
+    /// Beta testing kept surfacing new model-drift modes (translation, fragment
+    /// completion, invented links, prose refusals, answered questions); the
+    /// validation gate degrades all of them safely, but the trust posture is
+    /// verbatim-unless-asked. A default change is a separate post-2.0 decision.
     var cleanupMode: CleanupMode {
         get { CleanupMode(rawValue: defaults.string(forKey: Key.cleanupMode) ?? "") ?? .off }
         set { defaults.set(newValue.rawValue, forKey: Key.cleanupMode) }
+    }
+
+    /// Command-mode key (v2). Command mode is inactive while this equals the
+    /// dictation key; Settings surfaces the collision.
+    var commandHotkey: HotkeyChoice {
+        get {
+            guard let raw = defaults.object(forKey: "commandHotkeyKeyCode") as? Int else { return .rightCommand }
+            return HotkeyChoice(rawValue: Int64(raw)) ?? .rightCommand
+        }
+        set { defaults.set(Int(newValue.rawValue), forKey: "commandHotkeyKeyCode") }
+    }
+
+    /// Recognition language (v2 multi-language). Spoken commands remain English.
+    var recognitionLocale: String {
+        get { defaults.string(forKey: recognitionLocaleKey) ?? "en_US" }
+        set { defaults.set(newValue, forKey: recognitionLocaleKey) }
     }
 
     /// Default OFF: the launch check is the app's only automatic network call,

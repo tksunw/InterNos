@@ -133,6 +133,51 @@ final class HotkeyMonitorTests: XCTestCase {
         XCTAssertEqual(ups, 1)
     }
 
+    /// The command key (v2) is watched independently of the dictation key.
+    func testSecondaryKeyEmitsIndependentTransitions() {
+        AppSettings.shared.hotkey = .rightOption
+        AppSettings.shared.commandHotkey = .rightCommand
+        let monitor = HotkeyMonitor()
+        monitor.reloadSettings()
+        var primary = 0
+        var secondaryDowns = 0
+        var secondaryUps = 0
+        monitor.onKeyDown = { primary += 1 }
+        monitor.onSecondaryDown = { secondaryDowns += 1 }
+        monitor.onSecondaryUp = { secondaryUps += 1 }
+
+        let cmd = HotkeyChoice.rightCommand
+        monitor.handleFlagsChanged(
+            keyCode: cmd.rawValue, flags: genericMask(for: cmd) | cmd.deviceFlagMask)
+        monitor.handleFlagsChanged(keyCode: cmd.rawValue, flags: 0)
+
+        XCTAssertEqual(primary, 0, "the dictation key must not fire for the command key")
+        XCTAssertEqual(secondaryDowns, 1)
+        XCTAssertEqual(secondaryUps, 1)
+    }
+
+    /// A command key that collides with the dictation key is inactive.
+    func testSecondaryKeyDisabledWhenCollidingWithPrimary() {
+        AppSettings.shared.hotkey = .rightOption
+        AppSettings.shared.commandHotkey = .rightOption
+        let monitor = HotkeyMonitor()
+        monitor.reloadSettings()
+        var primaryDowns = 0
+        var secondaryDowns = 0
+        monitor.onKeyDown = { primaryDowns += 1 }
+        monitor.onSecondaryDown = { secondaryDowns += 1 }
+
+        let opt = HotkeyChoice.rightOption
+        monitor.handleFlagsChanged(
+            keyCode: opt.rawValue, flags: genericMask(for: opt) | opt.deviceFlagMask)
+
+        XCTAssertEqual(primaryDowns, 1)
+        XCTAssertEqual(secondaryDowns, 0, "a colliding command key never fires")
+
+        monitor.handleFlagsChanged(keyCode: opt.rawValue, flags: 0)
+        AppSettings.shared.commandHotkey = .rightCommand // restore default
+    }
+
     /// Changing the hotkey while the old key is held ends the hold once and starts
     /// the new key from a clean state with no synthetic transition.
     func testReloadSettingsWhileHeldClearsStateOnce() {

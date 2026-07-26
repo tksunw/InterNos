@@ -4,6 +4,52 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-07-26
+
+### Added
+- Command mode: select text anywhere, hold the command key (default Right
+  Command, configurable), speak an instruction, release — the selection is
+  rewritten in place by the on-device Apple Intelligence model. The selection
+  is read only at the moment of invocation; any failure leaves it untouched,
+  and the original text is recoverable via Copy Last Raw Dictation.
+- Live transcript preview: the floating indicator shows your words as they're
+  recognized, while you're still speaking.
+- "Scratch that": say it as its own utterance to delete the previous dictation
+  or command-mode rewrite (one level, same app only).
+- Recognition languages: Settings → Language lists every locale the on-device
+  recognizer supports; switching may trigger a one-time system model download.
+  Spoken commands remain English for now.
+
+### Fixed
+- Smart cleanup could return a reply to a long dictation instead of the
+  dictation itself. The text is now passed to the model as labelled data rather
+  than as the prompt, and an output that dropped half the speaker's words is
+  rejected the way invented links and prose refusals already were.
+- Smart cleanup no longer discards the faithful revision of a long utterance
+  while accepting a short drifted one: the time limit scales with the length of
+  the dictation, and the input cap was lowered to a length the model can
+  actually finish inside it. Longer utterances take the deterministic path.
+- Cleanup results are reproducible for the same words: the model now samples
+  greedily instead of randomly.
+- Filler removal now catches held hesitations ("ummm", "uhh", "hmmm"), not just
+  their short spellings.
+- A dictated question with no question mark — the recognizer often omits it —
+  could come back answered instead of tidied. Question shape is now judged by
+  the opening word, not the punctuation.
+- Command-mode rewrites are reproducible for the same selection and instruction.
+
+### Changed
+- Light cleanup no longer requires Apple Intelligence. Without the model it is
+  deterministic filler removal, which any supported Mac can run; only Polished
+  needs an eligible Mac. Previously an ineligible Mac had the whole feature
+  forced to Off, so "um" and "uh" removal was unreachable there.
+- Settings explains that dictation containing a spoken command or snippet gets
+  filler removal only, so it stops reading as inconsistent behavior.
+- Insertion now prefers the Accessibility API, placing text directly into the
+  focused field. On that path the transcript never touches the clipboard; the
+  clipboard swap remains only as a fallback for apps without Accessibility
+  text support.
+
 ## [1.2.0] - 2026-07-14
 
 ### Added
@@ -165,6 +211,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[2.0.0]: https://github.com/tksunw/InterNos/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/tksunw/InterNos/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/tksunw/InterNos/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/tksunw/InterNos/compare/v1.0.7...v1.0.8

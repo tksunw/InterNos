@@ -35,7 +35,7 @@ final class SmartCleanupCoordinatorTests: XCTestCase {
         let coordinator = SmartCleanupCoordinator(cleaner: cleaner)
         let big = String(repeating: "a", count: SmartCleanupCoordinator.maxInputLength + 1)
         let result = await coordinator.clean(big, mode: .light)
-        XCTAssertNil(result, "inputs above 4,000 characters continue deterministically")
+        XCTAssertNil(result, "inputs above the cap continue deterministically")
         XCTAssertTrue(cleaner.inputs.isEmpty)
     }
 
@@ -54,14 +54,18 @@ final class SmartCleanupCoordinatorTests: XCTestCase {
     }
 
     func testValidationRejectsGarbageOutput() {
-        let validate = { SmartCleanupCoordinator.validate($0, input: "0123456789") }
-        XCTAssertNil(validate(""), "empty output rejected")
-        XCTAssertNil(validate("   \n  "), "whitespace-only output rejected")
-        XCTAssertNil(validate(String(repeating: "x", count: 15 + 128 + 1)), "oversize output rejected")
-        XCTAssertNil(validate("has a \u{0007} bell"), "control characters rejected")
-        XCTAssertEqual(validate("ok\ttab and\nnewline"), "ok\ttab and\nnewline", "tab and newline allowed")
-        XCTAssertEqual(validate("  trimmed \r\n"), "trimmed", "outer whitespace trimmed, line endings normalized")
-        XCTAssertEqual(validate("line one\r\nline two"), "line one\nline two")
+        let reject = { SmartCleanupCoordinator.validate($0, input: "0123456789") }
+        XCTAssertNil(reject(""), "empty output rejected")
+        XCTAssertNil(reject("   \n  "), "whitespace-only output rejected")
+        XCTAssertNil(reject(String(repeating: "x", count: 15 + 128 + 1)), "oversize output rejected")
+        XCTAssertNil(reject("has a \u{0007} bell"), "control characters rejected")
+        // Accepted outputs share the speaker's words (the overlap rule).
+        XCTAssertEqual(SmartCleanupCoordinator.validate("ok\ttab and\nnewline", input: "ok tab and newline"),
+                       "ok\ttab and\nnewline", "tab and newline allowed")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("  trimmed \r\n", input: "trimmed"),
+                       "trimmed", "outer whitespace trimmed, line endings normalized")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("line one\r\nline two", input: "line one line two"),
+                       "line one\nline two")
     }
 
     func testRejectedOutputFallsBackToOriginal() async {
@@ -93,8 +97,10 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertEqual(result.raw, "um we use uh cube control for deployments", "raw preserved for recovery")
     }
 
-    func testSnippetContentBypassesCleanup() async {
-        // Cross-feature case 2: only ordinary segments reach the model.
+    func testUtteranceWithSnippetSkipsCleanupEntirely() async {
+        // Cleanup on fragments around a snippet made the model invent completions
+        // (beta field report: a fabricated markdown link). A structured utterance
+        // takes the deterministic path — the model sees nothing at all.
         let id = UUID()
         let table = SnippetTable(snippets: [(id, "support response", "Secret exact\ncontent ✨")])
         let cleaner = FakeCleaner()
@@ -103,18 +109,198 @@ final class SmartCleanupPipelineTests: XCTestCase {
 
         let result = await pipeline(cleaner).process("please use snippet support response thanks", settings: settings)
 
-        XCTAssertEqual(result.final, "PLEASE USE Secret exact\ncontent ✨ THANKS")
-        for input in cleaner.inputs {
-            XCTAssertFalse(input.contains("Secret"), "snippet content must never enter a model prompt")
-        }
+        XCTAssertEqual(result.final, "please use Secret exact\ncontent ✨ thanks")
+        XCTAssertTrue(cleaner.inputs.isEmpty, "no fragment may reach the model when protected segments exist")
+        XCTAssertFalse(result.cleanupApplied)
     }
 
-    func testLiteralEscapeBypassesCleanup() async {
+    func testUtteranceWithCommandSkipsCleanupEntirely() async {
         let cleaner = FakeCleaner()
         cleaner.transform = { $0.uppercased() }
         let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
         let result = await pipeline(cleaner).process("say literal new line loudly", settings: settings)
-        XCTAssertEqual(result.final, "SAY new line LOUDLY", "the escaped phrase stays exact")
+        XCTAssertEqual(result.final, "say new line loudly", "deterministic path, escaped phrase exact")
+        XCTAssertTrue(cleaner.inputs.isEmpty)
+    }
+
+    func testPlainUtteranceStillGetsCleanup() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "Cleaned up nicely." }
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("um so cleaned up nicely", settings: settings)
+        XCTAssertEqual(result.final, "Cleaned up nicely.")
+        XCTAssertTrue(result.cleanupApplied)
+    }
+
+    func testStructuredUtteranceGetsDeterministicFillerRemoval() async {
+        // Filler removal must survive in command/snippet utterances (beta-3 feedback) —
+        // deterministically, with the model never invoked.
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "t k sun w", "tksunw")])
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in "SHOULD NOT RUN" }
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: table)
+
+        let result = await pipeline(cleaner).process(
+            "um my GitHub handle is uh snippet t k sun w", settings: settings)
+
+        XCTAssertEqual(result.final, "my GitHub handle is tksunw")
+        XCTAssertTrue(cleaner.inputs.isEmpty, "structured utterances never reach the model")
+        XCTAssertTrue(result.cleanupApplied)
+    }
+
+    func testModelFailureFallsBackToFillerStripping() async {
+        let cleaner = FakeCleaner()
+        cleaner.transform = { _ in nil } // timeout / refusal
+        let settings = ProcessingSettings(cleanupMode: .light, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("um so this uh still gets tidied", settings: settings)
+        XCTAssertEqual(result.final, "so this still gets tidied")
+        XCTAssertTrue(result.cleanupApplied)
+    }
+
+    func testValidationRejectsAnswersToLongDictation() {
+        // The reported failure: on a long utterance the model replies instead of
+        // revising. Word overlap can't catch it (a reply reuses the speaker's own
+        // vocabulary, and a long input makes almost any short output score ~1.0),
+        // so the length floor is what rejects it.
+        let input = """
+        so I was thinking about the deployment window for next week and whether we \
+        should move the database migration ahead of the app rollout or leave it where \
+        it is given the load we saw on Tuesday afternoon
+        """
+        XCTAssertGreaterThanOrEqual(
+            SmartCleanupCoordinator.wordOverlap(output: "Move the migration first.", input: input), 0.5,
+            "overlap alone accepts the answer — this is why the floor exists")
+        XCTAssertNil(SmartCleanupCoordinator.validate("Move the migration first.", input: input))
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "You should leave the migration where it is.", input: input))
+        // A real Light-mode revision of the same utterance still passes.
+        XCTAssertNotNil(SmartCleanupCoordinator.validate(
+            """
+            I was thinking about the deployment window for next week, and whether we \
+            should move the database migration ahead of the app rollout or leave it \
+            where it is, given the load we saw on Tuesday afternoon.
+            """, input: input))
+        // Short filler-dense utterances stay legal despite losing most characters.
+        XCTAssertEqual(SmartCleanupCoordinator.validate("Hello.", input: "um, uh, so, yeah, hello"), "Hello.")
+    }
+
+    func testFillerStripperConservatism() {
+        XCTAssertEqual(FillerStripper.strip("Um, hello there"), "hello there")
+        // The recognizer varies the spelling by how long the sound was held.
+        XCTAssertEqual(FillerStripper.strip("Ummm, uhh, hmmm, okay"), "okay")
+        XCTAssertEqual(FillerStripper.strip("I was, um, thinking"), "I was, thinking")
+        XCTAssertEqual(FillerStripper.strip("no fillers here"), "no fillers here")
+        XCTAssertEqual(FillerStripper.strip("the drummer plays the drum"), "the drummer plays the drum")
+        // Words the stripper must NOT touch without semantics: "like", "you know".
+        XCTAssertEqual(FillerStripper.strip("I like this, you know"), "I like this, you know")
+    }
+
+    func testFillersUntouchedWhenCleanupOff() async {
+        let cleaner = FakeCleaner()
+        let settings = ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: .empty)
+        let result = await pipeline(cleaner).process("um exactly what I said", settings: settings)
+        XCTAssertEqual(result.final, "um exactly what I said")
+    }
+
+    func testValidationRejectsProseRefusals() {
+        // Exact beta field case: mild profanity made the model return refusal TEXT
+        // (not an error), which was inserted as the dictation.
+        let input = "You bloody rippah!  I can't believe you got that!"
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "I'm sorry, but as a chatbot created by Apple, I cannot use vulgar language.",
+            input: input))
+        // The speaker's own "I can't" never triggers the refusal check.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "You bloody rippah! I can't believe you got that!", input: input),
+            "You bloody rippah! I can't believe you got that!")
+    }
+
+    func testWordOverlapCatchesWholesaleRewrites() {
+        // A refusal or unrelated rewrite shares almost no words with the input.
+        XCTAssertLessThan(SmartCleanupCoordinator.wordOverlap(
+            output: "As a helpful assistant I must decline this request entirely.",
+            input: "you bloody rippah I can't believe you got that"), 0.5)
+        // Ordinary cleanup keeps the speaker's words.
+        XCTAssertGreaterThanOrEqual(SmartCleanupCoordinator.wordOverlap(
+            output: "We should go to the store.",
+            input: "um so we should um go to the store"), 0.5)
+        // Self-correction keeps the surviving words.
+        XCTAssertGreaterThanOrEqual(SmartCleanupCoordinator.wordOverlap(
+            output: "Meet Wednesday.",
+            input: "meet Tuesday, actually Wednesday"), 0.5)
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "Something entirely unrelated to what was spoken here.",
+            input: "buy milk and eggs tomorrow"))
+    }
+
+    func testCommandValidationRejectsRefusalsButAllowsTranslations() {
+        XCTAssertNil(CommandTransformCoordinator.validate(
+            "I'm sorry, but as a chatbot I cannot rewrite this text.",
+            input: "some selected text"))
+        // Translations share no words with the input and must still pass.
+        XCTAssertEqual(CommandTransformCoordinator.validate(
+            "Hola mundo, ¿cómo estás?", input: "hello world, how are you?"),
+            "Hola mundo, ¿cómo estás?")
+    }
+
+    func testValidationRejectsAnswersToQuestions() {
+        // Beta field case: "are ya here for school?" came back answered, not cleaned.
+        let input = "Oi, are you here for school, love?"
+        XCTAssertNil(SmartCleanupCoordinator.validate("Yes, I am here for school.", input: input),
+                     "a question must stay a question")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("Are you here for school, love?", input: input),
+                       "Are you here for school, love?", "cleaning the question is fine")
+        // Answer-shaped opening without a question mark in play.
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "Yes, the server is here for maintenance.",
+            input: "tell me whether the server is here for maintenance"))
+        // The speaker's own yes/no openings stay legal.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "Yes, I'll be there at noon.", input: "yes I'll be there at noon"),
+            "Yes, I'll be there at noon.")
+    }
+
+    func testValidationRejectsAnswersToUnpunctuatedQuestions() {
+        // The recognizer drops the question mark often enough that punctuation
+        // alone can't be the test: shape has to come from the opening word.
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "The deploy window closes at five.",
+            input: "when does the deploy window close"))
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "We should move the migration first.",
+            input: "should we move the migration first"))
+        // Cleaning the question — with or without restoring the mark — is fine.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "When does the deploy window close?", input: "when does the deploy window close"),
+            "When does the deploy window close?")
+        // Statements that merely open with an interrogative word keep working.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "How we got here is a long story.", input: "how we got here is a long story"),
+            "How we got here is a long story.")
+    }
+
+    func testModelCleanupGatedToEnglishRecognition() {
+        // Beta-5 field report: Spanish dictation came back translated to English —
+        // the cleanup model drifts under English instructions on non-English input.
+        XCTAssertEqual(CleanupMode.light.effective(forLocaleIdentifier: "es_US"), .off)
+        XCTAssertEqual(CleanupMode.polished.effective(forLocaleIdentifier: "de_DE"), .off)
+        XCTAssertEqual(CleanupMode.light.effective(forLocaleIdentifier: "en_US"), .light)
+        XCTAssertEqual(CleanupMode.polished.effective(forLocaleIdentifier: "en_GB"), .polished)
+        XCTAssertEqual(CleanupMode.off.effective(forLocaleIdentifier: "en_US"), .off)
+    }
+
+    func testValidationRejectsIntroducedLinks() {
+        // The exact beta failure: model invents a markdown link the speaker never said.
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "My GitHub handle is [handle here](https://github.com/username)",
+            input: "my github handle is"))
+        XCTAssertNil(SmartCleanupCoordinator.validate(
+            "see https://example.com for details", input: "see the site for details"))
+        // URLs the speaker actually dictated survive.
+        XCTAssertEqual(SmartCleanupCoordinator.validate(
+            "Go to https://example.com now.", input: "go to https://example.com now"),
+            "Go to https://example.com now.")
     }
 
     func testCleanupTimeoutStillRendersCommandsReplacementsSnippets() async {

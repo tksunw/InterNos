@@ -62,6 +62,30 @@ enum TranscriptTokenizer {
         let core = String(word[start..<end]).folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
         return TranscriptToken(range: range, core: core, leading: leading, trailing: trailing)
     }
+
+    /// Letter-run-insensitive phrase match: consumes whole tokens while their
+    /// concatenated alphanumeric form builds toward `key` (itself squashed, folded).
+    /// Matches only when the key ends exactly on a token boundary, so "tksunwave"
+    /// can never match "tksunw". The recognizer merges and punctuates spelled
+    /// letters unpredictably ("t k sun w" → "TK sun W" / "T. K. Sun W."), which
+    /// token-wise matching alone cannot survive.
+    static func compactMatch(
+        _ key: String, at start: Int, tokens: [TranscriptToken]
+    ) -> (trailing: String, consumed: Int)? {
+        guard !key.isEmpty else { return nil }
+        var running = ""
+        var j = start
+        while j < tokens.count {
+            guard tokens[j].leading.isEmpty || j == start else { return nil }
+            let piece = String(tokens[j].core.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+            guard !piece.isEmpty else { return nil }
+            running += piece
+            if running == key { return (tokens[j].trailing, j - start + 1) }
+            guard running.count < key.count, key.hasPrefix(running) else { return nil }
+            j += 1
+        }
+        return nil
+    }
 }
 
 enum TranscriptCommandParser {
@@ -208,15 +232,37 @@ enum TranscriptCommandParser {
         return nil
     }
 
+    /// Auto-punctuation routinely glues a comma/colon to a leading command word
+    /// ("Snippet, calendar link"). Prefix words therefore tolerate trailing
+    /// punctuation — it's discarded with the command.
+    private static func isPrefix(_ token: TranscriptToken, _ word: String) -> Bool {
+        token.core == word && token.leading.isEmpty
+    }
+
     private static func matchSnippet(at i: Int, tokens: [TranscriptToken], snippets: SnippetTable) -> Match? {
-        guard tokens[i].core == "snippet", tokens[i].bare else { return nil }
+        guard isPrefix(tokens[i], "snippet") else { return nil }
+        // Token-wise first (exact spoken form), longest name first.
         for entry in snippets.names {
             guard let hit = matchWords(entry.tokens, at: i + 1, tokens: tokens) else { continue }
             var segments: [TranscriptSegment] = [.snippet(entry.id)]
             if !hit.trailing.isEmpty { segments.append(.text(hit.trailing)) }
             return Match(segments: segments, consumed: 1 + entry.tokens.count)
         }
+        // Letter-run-insensitive fallback: the recognizer merges/punctuates spelled
+        // letters ("TK sun W", "T. K. Sun W."), so compare squashed alphanumerics.
+        for entry in snippets.names.sorted(by: { $0.compactKey.count > $1.compactKey.count }) {
+            guard let hit = matchCompact(entry.compactKey, at: i + 1, tokens: tokens) else { continue }
+            var segments: [TranscriptSegment] = [.snippet(entry.id)]
+            if !hit.trailing.isEmpty { segments.append(.text(hit.trailing)) }
+            return Match(segments: segments, consumed: 1 + hit.consumed)
+        }
         return nil
+    }
+
+    private static func matchCompact(
+        _ key: String, at start: Int, tokens: [TranscriptToken]
+    ) -> (trailing: String, consumed: Int)? {
+        TranscriptTokenizer.compactMatch(key, at: start, tokens: tokens)
     }
 
     private static func matchStructural(at i: Int, tokens: [TranscriptToken]) -> Match? {
@@ -228,11 +274,11 @@ enum TranscriptCommandParser {
     }
 
     private static func matchLegacy(at i: Int, tokens: [TranscriptToken], raw: String) -> Match? {
-        if tokens[i].core == "hashtag", tokens[i].bare, i + 1 < tokens.count, !tokens[i + 1].core.isEmpty {
+        if isPrefix(tokens[i], "hashtag"), i + 1 < tokens.count, !tokens[i + 1].core.isEmpty {
             // "#" plus the next token exactly as spoken (keeps its trailing punctuation).
             return Match(segments: [.literal("#" + String(raw[tokens[i + 1].range]))], consumed: 2)
         }
-        if tokens[i].core == "emoji", tokens[i].bare {
+        if isPrefix(tokens[i], "emoji") {
             for (words, glyph) in emoji.sorted(by: { $0.0.count > $1.0.count }) {
                 guard let hit = matchWords(words, at: i + 1, tokens: tokens) else { continue }
                 return Match(segments: [.literal(glyph + hit.trailing)], consumed: 1 + words.count)

@@ -11,14 +11,40 @@ protocol TranscriptionProviding: Sendable {
     func modelStatus() async -> AssetInventory.Status
     func ensureModel() async throws
     func analyzerFormat() async throws -> AVAudioFormat
-    func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String
+    /// `onPartial` receives the accumulated transcript (finalized prefix + current
+    /// volatile tail) as recognition progresses — drives the live preview (v2).
+    func transcribe(
+        input: AsyncStream<AnalyzerInput>,
+        format: AVAudioFormat,
+        onPartial: (@Sendable (String) -> Void)?
+    ) async throws -> String
+}
+
+extension TranscriptionProviding {
+    func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String {
+        try await transcribe(input: input, format: format, onPartial: nil)
+    }
 }
 
 final class TranscriptionEngine: TranscriptionProviding, Sendable {
-    private let locale = Locale(identifier: "en_US")
+    /// Read per call so a Settings change applies to the next utterance without a
+    /// new engine (v2 multi-language). Defaults to the persisted app setting.
+    private let localeProvider: @Sendable () -> Locale
 
+    init(localeProvider: (@Sendable () -> Locale)? = nil) {
+        self.localeProvider = localeProvider ?? {
+            Locale(identifier: UserDefaults.standard.string(forKey: recognitionLocaleKey) ?? "en_US")
+        }
+    }
+
+    /// Volatile results feed the live preview; finalized results build the transcript.
     func makeTranscriber() -> SpeechTranscriber {
-        SpeechTranscriber(locale: locale, preset: .transcription)
+        SpeechTranscriber(
+            locale: localeProvider(),
+            transcriptionOptions: [],
+            reportingOptions: [.volatileResults],
+            attributeOptions: []
+        )
     }
 
     func modelStatus() async -> AssetInventory.Status {
@@ -59,7 +85,11 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
     /// Runs one utterance session: consumes `input` until it finishes, returns the
     /// trimmed raw transcript. User-facing postprocessing (commands, replacements,
     /// snippets, cleanup) is owned by TranscriptPipeline, not the engine.
-    func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String {
+    func transcribe(
+        input: AsyncStream<AnalyzerInput>,
+        format: AVAudioFormat,
+        onPartial: (@Sendable (String) -> Void)?
+    ) async throws -> String {
         let transcriber = makeTranscriber()
         let analyzer = SpeechAnalyzer(
             modules: [transcriber],
@@ -70,8 +100,15 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
 
         let consumer = Task {
             var transcript = ""
-            for try await result in transcriber.results where result.isFinal {
-                transcript += String(result.text.characters)
+            for try await result in transcriber.results {
+                if result.isFinal {
+                    transcript += String(result.text.characters)
+                    onPartial?(transcript)
+                } else {
+                    // Volatile tail: replaces the previous volatile guess, shown
+                    // after the finalized prefix for display only (live preview).
+                    onPartial?(transcript + String(result.text.characters))
+                }
             }
             return transcript
         }

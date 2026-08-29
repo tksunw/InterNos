@@ -63,8 +63,11 @@ enum CleanupPrompt {
     /// Handed the bare text, the model reads a long utterance as a request and
     /// replies to it (field report); the command-mode prompt has always framed
     /// its input this way.
+    static let openMarker = "<<<DICTATION"
+    static let closeMarker = "DICTATION>>>"
+
     static func prompt(for text: String) -> String {
-        "Revise the dictation between the markers. Return only the revised text.\n\n<<<DICTATION\n\(text)\nDICTATION>>>"
+        "Revise the dictation between the markers. Return only the revised text.\n\n\(openMarker)\n\(text)\n\(closeMarker)"
     }
 }
 
@@ -206,7 +209,11 @@ struct SmartCleanupCoordinator: SmartCleaning {
     /// Obvious-failure checks, not semantic fidelity (the raw value stays in
     /// volatile recovery for that). Returns the normalized output or nil to reject.
     static func validate(_ output: String, input: String) -> String? {
+        // The model sometimes echoes the prompt's data markers around its answer
+        // (field report on macOS 26.6.1). Strip them wherever they land.
         let value = output
+            .replacingOccurrences(of: CleanupPrompt.openMarker, with: "")
+            .replacingOccurrences(of: CleanupPrompt.closeMarker, with: "")
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)

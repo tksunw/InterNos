@@ -68,6 +68,15 @@ final class SmartCleanupCoordinatorTests: XCTestCase {
                        "line one\nline two")
     }
 
+    func testValidationStripsEchoedPromptMarkers() {
+        let input = "hello there world"
+        XCTAssertEqual(SmartCleanupCoordinator.validate("<<<DICTATION\nHello there, world.\nDICTATION>>>", input: input),
+                       "Hello there, world.")
+        XCTAssertEqual(SmartCleanupCoordinator.validate("DICTATION>>> Hello there, world. <<<DICTATION", input: input),
+                       "Hello there, world.")
+        XCTAssertNil(SmartCleanupCoordinator.validate("<<<DICTATION\nDICTATION>>>", input: input), "markers alone are empty")
+    }
+
     func testRejectedOutputFallsBackToOriginal() async {
         let cleaner = FakeCleaner()
         cleaner.transform = { _ in "\u{0007}" } // invalid model output

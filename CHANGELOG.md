@@ -4,6 +4,13 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Smart cleanup no longer inserts `<<<DICTATION` / `DICTATION>>>` around the
+  text when the on-device model echoes the prompt's data markers back
+  (reported on macOS 26.6.1).
+
 ## [2.0.0] - 2026-07-26
 
 ### Added

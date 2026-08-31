@@ -4,6 +4,21 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-08-31
+
+### Fixed
+- Dictating into Electron apps (Claude Desktop, Slack, VS Code, …) sometimes
+  inserted nothing: the app reported a successful accessibility-direct
+  insertion without actually inserting. Electron apps now always use the
+  proven clipboard-swap path.
+
+### Changed
+- Updates now install in place via [Sparkle](https://sparkle-project.org):
+  Check for Updates downloads, verifies (EdDSA signature + notarization), and
+  relaunches — no more browser trip to GitHub. The "check at launch" setting
+  became "Check for updates automatically" (about once a day); an existing
+  opt-in carries over, and everything remains off until you consent.
+
 ## [2.0.1] - 2026-08-29
 
 ### Fixed
@@ -218,6 +233,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[2.1.0]: https://github.com/tksunw/InterNos/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/tksunw/InterNos/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/tksunw/InterNos/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/tksunw/InterNos/compare/v1.1.0...v1.2.0

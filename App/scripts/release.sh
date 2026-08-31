@@ -23,6 +23,7 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-internos}"
 DEV_ID="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Developer ID Application/{print $2; exit}')"
 if [[ -n "$DEV_ID" ]]; then
     echo "signing with: $DEV_ID"
+    "$DIR/scripts/sign-sparkle-framework.sh" "$APP" "$DEV_ID" --timestamp
     codesign --force --options runtime --timestamp \
         --entitlements "$DIR/Resources/Internos.entitlements" --sign "$DEV_ID" "$APP"
 else
@@ -56,6 +57,23 @@ if [[ "$HAVE_NOTARY" == "1" ]]; then
     xcrun stapler staple "$DMG"
     echo "notarized and stapled: $DMG"
 fi
+
+# Sparkle appcast: EdDSA-sign the DMG (key lives in the login keychain, created
+# once with generate_keys) and write appcast.xml at the repo root. Sparkle
+# clients read it from raw.githubusercontent.com (SUFeedURL), so the release
+# isn't visible to updaters until appcast.xml is committed and pushed.
+SPARKLE_BIN="$DIR/.build/artifacts/sparkle/Sparkle/bin"
+REPO="$(cd "$DIR/.." && pwd)"
+APPCAST_STAGE="$DIR/build/appcast-stage"
+rm -rf "$APPCAST_STAGE"
+mkdir -p "$APPCAST_STAGE"
+cp "$DMG" "$APPCAST_STAGE/"
+"$SPARKLE_BIN/generate_appcast" \
+    --download-url-prefix "https://github.com/tksunw/InterNos/releases/download/v$VERSION/" \
+    --link "https://github.com/tksunw/InterNos/releases" \
+    -o "$REPO/appcast.xml" "$APPCAST_STAGE"
+echo "appcast written: $REPO/appcast.xml"
+echo "REMINDER: upload the DMG to the v$VERSION GitHub release, then commit and push appcast.xml."
 
 echo "--- artifacts ---"
 shasum -a 256 "$ZIP" "$DMG"

@@ -145,7 +145,7 @@ final class StatusItemController: NSObject, StatusPresenting {
     @objc private func copyLastRaw() { onCopyLastRaw?() }
     @objc private func pasteLast() { onPasteLast?() }
     @objc private func clearLast() { onClearLast?() }
-    @objc private func checkForUpdates() { UpdateChecker.check() }
+    @objc private func checkForUpdates() { UpdateController.shared.checkForUpdates() }
     @objc private func showAbout() {
         // Menu-bar-only app: without activate the panel opens behind the frontmost app.
         NSApp.activate(ignoringOtherApps: true)

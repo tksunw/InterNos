@@ -40,7 +40,7 @@ If a password field has focus (macOS Secure Input), Internos refuses to paste an
 Two cases, neither in the dictation path, neither carrying any of your data (smart cleanup, replacements, snippets, and commands all run locally and add no network activity):
 
 1. **Speech model download.** On first run, macOS itself downloads Apple's on-device speech model from Apple's servers. This is a system asset, shared across apps, fetched by macOS — not by Internos.
-2. **Update check.** If you click "Check for Updates…" (or enable the off-by-default "Check for updates at launch" setting), Internos makes one HTTPS request to the GitHub API to compare version numbers. The request contains no personal data, no identifiers, and nothing about your usage. With the setting off and the menu item unclicked, Internos makes no network requests at all.
+2. **Update check.** If you click "Check for Updates…" (or opt in to automatic checks — Sparkle's one-time prompt or the off-by-default "Check for updates automatically" setting), Internos fetches the update feed and, when you accept an update, the installer from GitHub over HTTPS. The requests contain no personal data, no identifiers, and nothing about your usage. Updates are handled by the open-source [Sparkle](https://sparkle-project.org) framework with its analytics-free defaults: no system-profile reporting, nothing sent beyond the fetch itself. With automatic checks off and the menu item unclicked, Internos makes no network requests at all.
 
 ## Permissions
 

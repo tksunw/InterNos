@@ -34,7 +34,7 @@ private struct GeneralSettingsView: View {
     @State private var inputDeviceUID: String = AppSettings.shared.inputDeviceUID ?? ""
     @State private var playSounds = AppSettings.shared.playSounds
     @State private var launchAtLogin = AppSettings.shared.launchAtLogin
-    @State private var checkUpdatesAtLaunch = AppSettings.shared.checkUpdatesAtLaunch
+    @State private var automaticUpdateChecks = UpdateController.shared.automaticallyChecksForUpdates
     @State private var devices = AudioDevices.inputDevices()
     @State private var recognitionLocale = AppSettings.shared.recognitionLocale
     @State private var supportedLocales: [(id: String, name: String)] = []
@@ -98,9 +98,9 @@ private struct GeneralSettingsView: View {
                 Toggle("Launch at login", isOn: $launchAtLogin)
             }
             Section {
-                Toggle("Check for updates at launch", isOn: $checkUpdatesAtLaunch)
+                Toggle("Check for updates automatically", isOn: $automaticUpdateChecks)
             } footer: {
-                Text("One request to GitHub at startup; silent unless an update exists. Off means Internos makes no network calls you don't click for.")
+                Text("Checks GitHub about once a day and offers to install new versions in place. Off means Internos makes no network calls you don't click for.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -115,7 +115,7 @@ private struct GeneralSettingsView: View {
         }
         .onChange(of: playSounds) { AppSettings.shared.playSounds = playSounds }
         .onChange(of: launchAtLogin) { AppSettings.shared.launchAtLogin = launchAtLogin }
-        .onChange(of: checkUpdatesAtLaunch) { AppSettings.shared.checkUpdatesAtLaunch = checkUpdatesAtLaunch }
+        .onChange(of: automaticUpdateChecks) { UpdateController.shared.automaticallyChecksForUpdates = automaticUpdateChecks }
         .onChange(of: recognitionLocale) {
             AppSettings.shared.recognitionLocale = recognitionLocale
             onChange?()

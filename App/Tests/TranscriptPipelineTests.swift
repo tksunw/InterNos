@@ -165,14 +165,3 @@ final class TranscriptRendererTests: XCTestCase {
         XCTAssertEqual(out, "new line stays text ok")
     }
 }
-
-final class UpdateCheckerTests: XCTestCase {
-    @MainActor
-    func testVersionCompare() {
-        XCTAssertTrue(UpdateChecker.isNewer("1.0.5", than: "1.0.4"))
-        XCTAssertTrue(UpdateChecker.isNewer("1.0.10", than: "1.0.9"))
-        XCTAssertFalse(UpdateChecker.isNewer("1.0.4", than: "1.0.5"))
-        XCTAssertFalse(UpdateChecker.isNewer("1.0.0", than: "1.0"))
-        XCTAssertFalse(UpdateChecker.isNewer("1.0", than: "1.0.0"))
-    }
-}

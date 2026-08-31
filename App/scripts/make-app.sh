@@ -25,6 +25,12 @@ cp "$BIN" "$APP/Contents/MacOS/Internos"
 cp "$DIR/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# Embed Sparkle.framework: SwiftPM links against the xcframework but doesn't
+# bundle it; the binary's rpath (@executable_path/../Frameworks) expects it here.
+SPARKLE_FW="$(ls -d "$DIR"/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-*/Sparkle.framework | head -1)"
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$SPARKLE_FW" "$APP/Contents/Frameworks/"
+
 # Debug builds get a distinct bundle ID + name so they never collide with an
 # installed release app's TCC (mic/Input Monitoring/Accessibility) or LaunchServices
 # identity. Release builds keep the real net.timkennedy.internos.
@@ -39,9 +45,11 @@ fi
 ENTITLEMENTS="$DIR/Resources/Internos.entitlements"
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')"
 if [[ -n "$IDENTITY" ]]; then
+    "$DIR/scripts/sign-sparkle-framework.sh" "$APP" "$IDENTITY"
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
 else
     echo "warning: no signing identity found, using ad-hoc (TCC grants reset on each rebuild)" >&2
+    "$DIR/scripts/sign-sparkle-framework.sh" "$APP" "-"
     codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
 fi
 

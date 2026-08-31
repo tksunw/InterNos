@@ -85,7 +85,7 @@ The menu bar keeps your most recent transcript in memory (never on disk): **Copy
 
 ## Updates
 
-Menu bar icon → **Check for Updates…** compares your version against the latest [GitHub release](../../releases) and offers the download page if you're behind. By default the check runs only when you click it — Internos makes no automatic network calls. If you'd rather be told automatically, Settings has an opt-in "Check for updates at launch" toggle (off by default): one request to GitHub at startup, silent unless an update exists. Changes per release are in [CHANGELOG.md](CHANGELOG.md).
+Menu bar icon → **Check for Updates…** fetches the latest release and, if you're behind, downloads and installs it in place ([Sparkle](https://sparkle-project.org), updates hosted on [GitHub releases](../../releases) and verified with an EdDSA signature plus notarization). Nothing runs without consent: Internos makes no automatic network calls until you either click the menu item or opt in to automatic checks (Sparkle's one-time prompt, or the "Check for updates automatically" toggle in Settings — roughly one request a day, silent unless an update exists). Changes per release are in [CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
 
@@ -126,7 +126,9 @@ cd App
 
 This produces both `Internos-<version>.zip` (raw app) and `Internos-<version>.dmg` (drag-to-Applications installer), each notarized and stapled.
 
-One-time setup for a notarized release: `pipx install dmgbuild` (builds the styled installer window), a **Developer ID Application** certificate in the keychain, and stored notary credentials:
+The script also EdDSA-signs the DMG and regenerates `appcast.xml` at the repo root (the Sparkle update feed, served from the `main` branch via raw.githubusercontent.com). Publishing a release is therefore: create the GitHub release with the DMG attached, then commit and push `appcast.xml` — updaters don't see the version until the appcast lands on `main`.
+
+One-time setup for a notarized release: `pipx install dmgbuild` (builds the styled installer window), a **Developer ID Application** certificate in the keychain, the Sparkle EdDSA key in the login keychain (`.build/artifacts/sparkle/Sparkle/bin/generate_keys`; the public key lives in `Info.plist` as `SUPublicEDKey`), and stored notary credentials:
 
 ```sh
 xcrun notarytool store-credentials internos \

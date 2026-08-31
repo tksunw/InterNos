@@ -148,9 +148,9 @@ final class DictationController {
             MainActor.assumeIsolated { self?.indicator.pushLevel(level) }
         }
 
-        if AppSettings.shared.checkUpdatesAtLaunch {
-            UpdateChecker.check(quiet: true)
-        }
+        // Starts Sparkle's scheduler (and runs the one-time legacy-preference
+        // migration). No network call happens without user consent.
+        _ = UpdateController.shared
 
         let modelInstalled = await engine.modelStatus() == .installed
         if PermissionsService.allGranted && modelInstalled {

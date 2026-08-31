@@ -26,5 +26,9 @@
 	<string>© 2026 Tim Kennedy</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Internos captures audio while you hold the dictation hotkey. Audio never leaves this Mac.</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/tksunw/InterNos/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>b6aRrGA2Sv3M6VuLc6CTWG4Pg6xlIMDsmx9rloM27OA=</string>
 </dict>
 </plist>

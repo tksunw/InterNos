@@ -59,7 +59,6 @@ final class AppSettings {
         static let mode = "activationMode"
         static let inputDeviceUID = "inputDeviceUID"
         static let playSounds = "playSounds"
-        static let checkUpdatesAtLaunch = "checkUpdatesAtLaunch"
         static let cleanupMode = "cleanupMode"
     }
 
@@ -87,13 +86,6 @@ final class AppSettings {
     var recognitionLocale: String {
         get { defaults.string(forKey: recognitionLocaleKey) ?? "en_US" }
         set { defaults.set(newValue, forKey: recognitionLocaleKey) }
-    }
-
-    /// Default OFF: the launch check is the app's only automatic network call,
-    /// so it must be an explicit opt-in (README privacy posture).
-    var checkUpdatesAtLaunch: Bool {
-        get { defaults.bool(forKey: Key.checkUpdatesAtLaunch) }
-        set { defaults.set(newValue, forKey: Key.checkUpdatesAtLaunch) }
     }
 
     var hotkey: HotkeyChoice {

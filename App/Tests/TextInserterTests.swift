@@ -17,6 +17,7 @@ final class TextInserterTests: XCTestCase {
         secureInput: Bool = false,
         accessibility: Bool = true,
         frontmost: @escaping () -> pid_t? = { 42 },
+        axUnreliable: Bool = false,
         axSucceeds: Bool = false,
         postPasteError: Error? = nil
     ) -> TextInserter {
@@ -31,6 +32,7 @@ final class TextInserterTests: XCTestCase {
             secureInputActive: { secureInput },
             accessibilityGranted: { accessibility },
             frontmostPID: frontmost,
+            axInsertionUnreliable: { _ in axUnreliable },
             axInsert: { [self] text, pid in
                 if axSucceeds { axInsertions.append((text, pid)) }
                 return axSucceeds
@@ -149,6 +151,20 @@ final class TextInserterTests: XCTestCase {
         let method = try inserter.insert("transcript", target: 42)
 
         XCTAssertEqual(method, .clipboard)
+        XCTAssertEqual(pastesPosted, 1)
+        runPendingRestore()
+        XCTAssertEqual(pasteboard.stringContents, "original")
+    }
+
+    func testUnreliableAXTargetGoesStraightToClipboardSwap() throws {
+        // Electron apps report AX success without inserting; the AX path must not
+        // even be attempted for them (a trusted false success would drop the text).
+        let inserter = makeInserter(axUnreliable: true, axSucceeds: true)
+        pasteboard.userCopy("original")
+        let method = try inserter.insert("transcript", target: 42)
+
+        XCTAssertEqual(method, .clipboard)
+        XCTAssertTrue(axInsertions.isEmpty, "no AX write may be attempted on an unreliable target")
         XCTAssertEqual(pastesPosted, 1)
         runPendingRestore()
         XCTAssertEqual(pasteboard.stringContents, "original")

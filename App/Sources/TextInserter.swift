@@ -101,6 +101,7 @@ final class TextInserter: TextInserting {
     private let secureInputActive: () -> Bool
     private let accessibilityGranted: () -> Bool
     private let frontmostPID: () -> pid_t?
+    private let axInsertionUnreliable: (pid_t) -> Bool
     private let axInsert: (String, pid_t) -> Bool
     private let postPaste: () throws -> Void
     private let postBackspaces: (Int) throws -> Void
@@ -115,6 +116,7 @@ final class TextInserter: TextInserting {
         secureInputActive: @escaping () -> Bool = { IsSecureEventInputEnabled() },
         accessibilityGranted: @escaping () -> Bool = { TextInserter.checkAccessibility(promptIfNeeded: false) },
         frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+        axInsertionUnreliable: @escaping (pid_t) -> Bool = { TextInserter.isElectronApp($0) },
         axInsert: @escaping (String, pid_t) -> Bool = { TextInserter.accessibilityInsert($0, targetPID: $1) },
         postPaste: @escaping () throws -> Void = { try TextInserter.postCommandV() },
         postBackspaces: @escaping (Int) throws -> Void = { try TextInserter.postBackspaces($0) }
@@ -124,6 +126,7 @@ final class TextInserter: TextInserting {
         self.secureInputActive = secureInputActive
         self.accessibilityGranted = accessibilityGranted
         self.frontmostPID = frontmostPID
+        self.axInsertionUnreliable = axInsertionUnreliable
         self.axInsert = axInsert
         self.postPaste = postPaste
         self.postBackspaces = postBackspaces
@@ -158,7 +161,9 @@ final class TextInserter: TextInserting {
         // the pasteboard, so Universal Clipboard and clipboard managers never see it.
         // An AX success report is trusted (no fallback paste — that would risk a
         // double insertion); the volatile recovery buffer covers a lying app.
-        if axInsert(text, target) {
+        // Known liars (Electron: Chromium reports a successful selected-text write
+        // without inserting anything) never get offered the AX path.
+        if !axInsertionUnreliable(target), axInsert(text, target) {
             return .accessibility
         }
 
@@ -275,6 +280,18 @@ final class TextInserter: TextInserting {
             return nil
         }
         return unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
+    }
+
+    /// Electron apps (Claude Desktop, Slack, VS Code…) accept a
+    /// kAXSelectedTextAttribute write into web content and report success without
+    /// inserting anything. Since an AX success is trusted with no fallback, these
+    /// apps must be routed to the clipboard swap up front. Framework sniff rather
+    /// than a bundle-ID list so every Electron app is covered, present and future.
+    static func isElectronApp(_ pid: pid_t) -> Bool {
+        guard let bundleURL = NSRunningApplication(processIdentifier: pid)?.bundleURL else { return false }
+        let electronFramework = bundleURL
+            .appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
+        return FileManager.default.fileExists(atPath: electronFramework.path)
     }
 
     /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the target

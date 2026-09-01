@@ -1,0 +1,16 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Internos</title>
+        <item>
+            <title>2.1.0</title>
+            <pubDate>Mon, 31 Aug 2026 11:28:35 -0400</pubDate>
+            <link>https://github.com/tksunw/InterNos/releases</link>
+            <sparkle:version>24</sparkle:version>
+            <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/tksunw/InterNos/releases/download/v2.1.0/Internos-2.1.0.dmg" length="2807184" type="application/octet-stream" sparkle:edSignature="XxG+7+KIh845TU1kQYOjWX7+Od8RmeC7UK/flfqo+l7l9hy+lIZGOiHcoUy0mkeimdYN9aIKjOxdn+5f5NV0Cw=="/>
+        </item>
+    </channel>
+</rss>

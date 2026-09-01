@@ -116,6 +116,13 @@ private struct GeneralSettingsView: View {
         .onChange(of: playSounds) { AppSettings.shared.playSounds = playSounds }
         .onChange(of: launchAtLogin) { AppSettings.shared.launchAtLogin = launchAtLogin }
         .onChange(of: automaticUpdateChecks) { UpdateController.shared.automaticallyChecksForUpdates = automaticUpdateChecks }
+        // Sparkle's own one-time permission prompt can flip this out from under the
+        // cached hosting controller; re-read whenever the view could be looked at,
+        // or the toggle misreports whether automatic checks run.
+        .onAppear { automaticUpdateChecks = UpdateController.shared.automaticallyChecksForUpdates }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            automaticUpdateChecks = UpdateController.shared.automaticallyChecksForUpdates
+        }
         .onChange(of: recognitionLocale) {
             AppSettings.shared.recognitionLocale = recognitionLocale
             onChange?()

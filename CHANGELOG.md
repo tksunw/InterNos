@@ -4,6 +4,21 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] - 2026-09-01
+
+### Fixed
+- The 2.1.0 Electron fix now covers every Chromium-based app: CEF apps
+  (Spotify, …) and Chromium browsers (Chrome, Edge, Brave, Arc, …) also
+  misreport accessibility-direct insertion into web content, so all of them
+  now use the proven clipboard-swap path.
+- Upgrading from 2.0.x keeps an explicit "don't check for updates" choice:
+  a stored opt-out now migrates to Sparkle as off instead of being discarded,
+  so Sparkle's one-time permission prompt never re-asks a question you already
+  answered.
+- The "Check for updates automatically" toggle in Settings refreshes when the
+  window is revisited, so a consent given through Sparkle's own prompt no
+  longer shows as Off.
+
 ## [2.1.0] - 2026-08-31
 
 ### Fixed
@@ -233,6 +248,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[2.1.1]: https://github.com/tksunw/InterNos/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/tksunw/InterNos/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/tksunw/InterNos/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/tksunw/InterNos/compare/v1.2.0...v2.0.0

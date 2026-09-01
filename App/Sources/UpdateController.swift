@@ -34,17 +34,17 @@ final class UpdateController {
         set { controller.updater.automaticallyChecksForUpdates = newValue }
     }
 
-    /// Pre-Sparkle releases stored an opt-in "check at launch" flag. Carry an
-    /// existing opt-in over (which also suppresses Sparkle's permission prompt —
-    /// the user already consented). Must run before startUpdater() so the first
-    /// scheduled check respects it.
+    /// Pre-Sparkle releases stored a "check at launch" flag (present only if the
+    /// user ever touched the toggle). Carry the stored decision over both ways:
+    /// an opt-in enables Sparkle's automatic checks, and an explicit opt-out
+    /// records "off" — either value suppresses Sparkle's one-time permission
+    /// prompt, so a question the user already answered is never re-asked. Must
+    /// run before startUpdater() so the first scheduled check respects it.
     private func migrateLegacyLaunchCheckPreference() {
         let defaults = UserDefaults.standard
         let legacyKey = "checkUpdatesAtLaunch"
         guard defaults.object(forKey: legacyKey) != nil else { return }
-        if defaults.bool(forKey: legacyKey) {
-            controller.updater.automaticallyChecksForUpdates = true
-        }
+        controller.updater.automaticallyChecksForUpdates = defaults.bool(forKey: legacyKey)
         defaults.removeObject(forKey: legacyKey)
     }
 }

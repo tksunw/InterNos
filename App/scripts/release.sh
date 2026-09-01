@@ -14,8 +14,29 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$DIR/build/Internos.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DIR/Resources/Info.plist")"
+BUILD_NUM="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$DIR/Resources/Info.plist")"
 ZIP="$DIR/build/Internos-$VERSION.zip"
 NOTARY_PROFILE="${NOTARY_PROFILE:-internos}"
+REPO="$(cd "$DIR/.." && pwd)"
+# Also hardcoded in Resources/Info.plist (SUFeedURL) — keep in sync on a rename.
+REPO_SLUG="tksunw/InterNos"
+
+# Sparkle compares sparkle:version (CFBundleVersion), not the marketing version.
+# A release that bumps only CFBundleShortVersionString would be invisible to
+# every installed copy, so refuse to build one. Rebuilding the same marketing
+# version with the same build number is allowed (generate_appcast updates the
+# existing item).
+if [[ -f "$REPO/appcast.xml" ]]; then
+    LAST_BUILD="$(sed -n 's:.*<sparkle\:version>\(.*\)</sparkle\:version>.*:\1:p' "$REPO/appcast.xml" | head -1)"
+    LAST_MARKETING="$(sed -n 's:.*<sparkle\:shortVersionString>\(.*\)</sparkle\:shortVersionString>.*:\1:p' "$REPO/appcast.xml" | head -1)"
+    if [[ -n "$LAST_BUILD" ]]; then
+        if (( BUILD_NUM < LAST_BUILD )) || { (( BUILD_NUM == LAST_BUILD )) && [[ "${LAST_MARKETING:-$VERSION}" != "$VERSION" ]]; }; then
+            echo "error: CFBundleVersion ($BUILD_NUM) must exceed the newest appcast sparkle:version ($LAST_BUILD)" >&2
+            echo "       or Sparkle clients will never see this release. Bump CFBundleVersion in Resources/Info.plist." >&2
+            exit 1
+        fi
+    fi
+fi
 
 "$DIR/scripts/make-app.sh" release
 
@@ -63,14 +84,13 @@ fi
 # clients read it from raw.githubusercontent.com (SUFeedURL), so the release
 # isn't visible to updaters until appcast.xml is committed and pushed.
 SPARKLE_BIN="$DIR/.build/artifacts/sparkle/Sparkle/bin"
-REPO="$(cd "$DIR/.." && pwd)"
 APPCAST_STAGE="$DIR/build/appcast-stage"
 rm -rf "$APPCAST_STAGE"
 mkdir -p "$APPCAST_STAGE"
 cp "$DMG" "$APPCAST_STAGE/"
 "$SPARKLE_BIN/generate_appcast" \
-    --download-url-prefix "https://github.com/tksunw/InterNos/releases/download/v$VERSION/" \
-    --link "https://github.com/tksunw/InterNos/releases" \
+    --download-url-prefix "https://github.com/$REPO_SLUG/releases/download/v$VERSION/" \
+    --link "https://github.com/$REPO_SLUG/releases" \
     -o "$REPO/appcast.xml" "$APPCAST_STAGE"
 echo "appcast written: $REPO/appcast.xml"
 echo "REMINDER: upload the DMG to the v$VERSION GitHub release, then commit and push appcast.xml."

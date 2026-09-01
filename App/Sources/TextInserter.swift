@@ -116,7 +116,7 @@ final class TextInserter: TextInserting {
         secureInputActive: @escaping () -> Bool = { IsSecureEventInputEnabled() },
         accessibilityGranted: @escaping () -> Bool = { TextInserter.checkAccessibility(promptIfNeeded: false) },
         frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
-        axInsertionUnreliable: @escaping (pid_t) -> Bool = { TextInserter.isElectronApp($0) },
+        axInsertionUnreliable: @escaping (pid_t) -> Bool = { TextInserter.isChromiumApp($0) },
         axInsert: @escaping (String, pid_t) -> Bool = { TextInserter.accessibilityInsert($0, targetPID: $1) },
         postPaste: @escaping () throws -> Void = { try TextInserter.postCommandV() },
         postBackspaces: @escaping (Int) throws -> Void = { try TextInserter.postBackspaces($0) }
@@ -161,8 +161,8 @@ final class TextInserter: TextInserting {
         // the pasteboard, so Universal Clipboard and clipboard managers never see it.
         // An AX success report is trusted (no fallback paste — that would risk a
         // double insertion); the volatile recovery buffer covers a lying app.
-        // Known liars (Electron: Chromium reports a successful selected-text write
-        // without inserting anything) never get offered the AX path.
+        // Known liars (Chromium reports a successful selected-text write into web
+        // content without inserting anything) never get offered the AX path.
         if !axInsertionUnreliable(target), axInsert(text, target) {
             return .accessibility
         }
@@ -282,16 +282,52 @@ final class TextInserter: TextInserting {
         return unsafeDowncast(focusedRef as AnyObject, to: AXUIElement.self)
     }
 
-    /// Electron apps (Claude Desktop, Slack, VS Code…) accept a
-    /// kAXSelectedTextAttribute write into web content and report success without
-    /// inserting anything. Since an AX success is trusted with no fallback, these
-    /// apps must be routed to the clipboard swap up front. Framework sniff rather
-    /// than a bundle-ID list so every Electron app is covered, present and future.
-    static func isElectronApp(_ pid: pid_t) -> Bool {
+    /// Chromium's AX layer accepts a kAXSelectedTextAttribute write into web
+    /// content and reports success without inserting anything. Since an AX success
+    /// is trusted with no fallback, every Chromium host must be routed to the
+    /// clipboard swap up front — Electron apps (Claude Desktop, Slack, VS Code…),
+    /// CEF apps (Spotify…), and Chromium browsers (Chrome, Edge, Brave, Arc…).
+    /// Framework sniff rather than a bundle-ID list so every such app is covered,
+    /// present and future. Cached per bundle path: the answer cannot change while
+    /// the app is running, and this sits on the insertion hot path.
+    private static var chromiumSniffCache: [String: Bool] = [:]
+
+    static func isChromiumApp(_ pid: pid_t) -> Bool {
         guard let bundleURL = NSRunningApplication(processIdentifier: pid)?.bundleURL else { return false }
-        let electronFramework = bundleURL
-            .appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
-        return FileManager.default.fileExists(atPath: electronFramework.path)
+        if let cached = chromiumSniffCache[bundleURL.path] { return cached }
+        let result = bundleContainsChromiumFramework(bundleURL)
+        chromiumSniffCache[bundleURL.path] = result
+        return result
+    }
+
+    private static func bundleContainsChromiumFramework(_ bundleURL: URL) -> Bool {
+        let frameworks = bundleURL.appendingPathComponent("Contents/Frameworks")
+        let fm = FileManager.default
+        // Fixed framework names first: Electron and CEF ship under stable names.
+        for known in ["Electron Framework.framework", "Chromium Embedded Framework.framework"]
+        where fm.fileExists(atPath: frameworks.appendingPathComponent(known).path) {
+            return true
+        }
+        // Chromium browsers ship a per-product "<Name> Framework.framework"
+        // (Google Chrome, Microsoft Edge, Brave Browser…). Identify those by the
+        // graphics libraries Chromium bundles: SwiftShader's Vulkan ICD (all
+        // current Chromium, verified Chrome 152/Edge/Brave) or ANGLE's libEGL
+        // (older Chromium bases that predate the SwiftShader move).
+        guard let entries = try? fm.contentsOfDirectory(atPath: frameworks.path) else { return false }
+        let markers = [
+            "Libraries/libvk_swiftshader.dylib",
+            "Versions/Current/Libraries/libvk_swiftshader.dylib",
+            "Libraries/libEGL.dylib",
+            "Versions/Current/Libraries/libEGL.dylib",
+        ]
+        for entry in entries where entry.hasSuffix(" Framework.framework") {
+            let framework = frameworks.appendingPathComponent(entry)
+            for marker in markers
+            where fm.fileExists(atPath: framework.appendingPathComponent(marker).path) {
+                return true
+            }
+        }
+        return false
     }
 
     /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the target

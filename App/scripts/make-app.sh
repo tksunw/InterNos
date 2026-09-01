@@ -27,7 +27,15 @@ cp "$DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 # Embed Sparkle.framework: SwiftPM links against the xcframework but doesn't
 # bundle it; the binary's rpath (@executable_path/../Frameworks) expects it here.
-SPARKLE_FW="$(ls -d "$DIR"/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-*/Sparkle.framework | head -1)"
+# The artifact path is SwiftPM-internal and has changed across toolchains, so
+# demand exactly one match instead of silently taking whatever sorts first.
+SPARKLE_SLICES=("$DIR"/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-*/Sparkle.framework(N))
+if (( ${#SPARKLE_SLICES} != 1 )); then
+    echo "error: expected exactly one macOS Sparkle.framework slice, found ${#SPARKLE_SLICES}" >&2
+    echo "       under $DIR/.build/artifacts — SwiftPM artifact layout changed?" >&2
+    exit 1
+fi
+SPARKLE_FW="${SPARKLE_SLICES[1]}"
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$SPARKLE_FW" "$APP/Contents/Frameworks/"
 
@@ -38,20 +46,22 @@ if [[ "$CONFIG" == "debug" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier net.timkennedy.internos.debug" "$APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleName Internos Dev" "$APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Internos Dev" "$APP/Contents/Info.plist"
+    # A dev build must never be a live Sparkle client on the production feed: an
+    # accepted update would install release Internos over this path and corrupt
+    # the debug bundle's separate TCC identity. No feed URL = no update offers.
+    /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP/Contents/Info.plist"
 fi
 
 # Prefer a real identity (stable TCC grants across rebuilds); fall back to ad-hoc.
 # The entitlements file is required: hardened runtime blocks mic access without it.
 ENTITLEMENTS="$DIR/Resources/Internos.entitlements"
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')"
-if [[ -n "$IDENTITY" ]]; then
-    "$DIR/scripts/sign-sparkle-framework.sh" "$APP" "$IDENTITY"
-    codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
-else
+if [[ -z "$IDENTITY" ]]; then
     echo "warning: no signing identity found, using ad-hoc (TCC grants reset on each rebuild)" >&2
-    "$DIR/scripts/sign-sparkle-framework.sh" "$APP" "-"
-    codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
+    IDENTITY="-"
 fi
+"$DIR/scripts/sign-sparkle-framework.sh" "$APP" "$IDENTITY"
+codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
 
 echo "built: $APP"
 codesign -dv "$APP" 2>&1 | grep -E "^(Identifier|Authority|Signature)" | head -3

@@ -4,7 +4,7 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.1.2] - 2026-09-02
 
 ### Fixed
 - Accessibility-direct insertion now verifies that the target actually
@@ -283,7 +283,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
-[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.1.1...HEAD
+[2.1.2]: https://github.com/tksunw/InterNos/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/tksunw/InterNos/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/tksunw/InterNos/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/tksunw/InterNos/compare/v2.0.0...v2.0.1

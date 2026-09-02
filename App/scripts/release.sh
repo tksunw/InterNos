@@ -26,15 +26,26 @@ REPO_SLUG="tksunw/InterNos"
 # every installed copy, so refuse to build one. Rebuilding the same marketing
 # version with the same build number is allowed (generate_appcast updates the
 # existing item).
+if [[ "$BUILD_NUM" != <-> ]]; then
+    echo "error: CFBundleVersion must be an integer for Sparkle ordering, got '$BUILD_NUM'" >&2
+    exit 1
+fi
 if [[ -f "$REPO/appcast.xml" ]]; then
-    LAST_BUILD="$(sed -n 's:.*<sparkle\:version>\(.*\)</sparkle\:version>.*:\1:p' "$REPO/appcast.xml" | head -1)"
-    LAST_MARKETING="$(sed -n 's:.*<sparkle\:shortVersionString>\(.*\)</sparkle\:shortVersionString>.*:\1:p' "$REPO/appcast.xml" | head -1)"
-    if [[ -n "$LAST_BUILD" ]]; then
-        if (( BUILD_NUM < LAST_BUILD )) || { (( BUILD_NUM == LAST_BUILD )) && [[ "${LAST_MARKETING:-$VERSION}" != "$VERSION" ]]; }; then
-            echo "error: CFBundleVersion ($BUILD_NUM) must exceed the newest appcast sparkle:version ($LAST_BUILD)" >&2
-            echo "       or Sparkle clients will never see this release. Bump CFBundleVersion in Resources/Info.plist." >&2
-            exit 1
-        fi
+    # Highest sparkle:version across all items (not the first item: the file may
+    # be hand-edited or reordered), plus that item's marketing version.
+    read -r LAST_BUILD LAST_MARKETING < <(awk -F'[<>]' '
+        /<sparkle:version>/ { b = $3 }
+        /<sparkle:shortVersionString>/ { m = $3 }
+        /<\/item>/ { if (b ~ /^[0-9]+$/ && b + 0 > max + 0) { max = b; mm = m }; b = ""; m = "" }
+        END { print max, mm }' "$REPO/appcast.xml")
+    if [[ "$LAST_BUILD" != <-> ]]; then
+        echo "error: appcast.xml exists but no integer <sparkle:version> parsed; refusing to guess" >&2
+        exit 1
+    fi
+    if (( BUILD_NUM < LAST_BUILD )) || { (( BUILD_NUM == LAST_BUILD )) && [[ "${LAST_MARKETING:-$VERSION}" != "$VERSION" ]]; }; then
+        echo "error: CFBundleVersion ($BUILD_NUM) must exceed the newest appcast sparkle:version ($LAST_BUILD)" >&2
+        echo "       or Sparkle clients will never see this release. Bump CFBundleVersion in Resources/Info.plist." >&2
+        exit 1
     fi
 fi
 

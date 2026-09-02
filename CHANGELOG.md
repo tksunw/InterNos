@@ -4,6 +4,31 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Accessibility-direct insertion now verifies that the target actually
+  changed. Chromium hosts the framework sniff cannot see (new Microsoft Teams
+  keeps its Chromium under Contents/Helpers; Chrome and Edge installed web
+  apps have no frameworks at all) report a successful insertion without
+  inserting; such a write now falls back to the clipboard-swap path instead
+  of losing the transcript.
+- The Chromium detection result is no longer cached for the life of the app:
+  a one-off failure to read an app's bundle (mid-update, unreadable volume)
+  used to mark that app as safe for accessibility-direct insertion until
+  Internos was restarted.
+- Debug builds no longer start Sparkle at all: without a feed URL the updater
+  used to show its permission prompt and raise a raw "Update Error" on a
+  manual check. "Check for Updates…" is hidden when no feed is configured.
+- `release.sh` now fails closed: a non-integer CFBundleVersion or an appcast
+  it cannot parse aborts the build instead of silently passing the version
+  gate, and the gate compares against the highest build in the appcast rather
+  than the first item.
+- Debug builds no longer abort if `SUFeedURL` is already absent from Info.plist.
+- Only Sparkle's XPC services keep their entitlements when re-signed;
+  Autoupdate no longer carries Sparkle's own application-identifier under our
+  signature.
+
 ## [2.1.1] - 2026-09-01
 
 ### Fixed
@@ -248,6 +273,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.1.1...HEAD
 [2.1.1]: https://github.com/tksunw/InterNos/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/tksunw/InterNos/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/tksunw/InterNos/compare/v2.0.0...v2.0.1

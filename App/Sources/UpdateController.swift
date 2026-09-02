@@ -16,14 +16,23 @@ final class UpdateController {
 
     private let controller: SPUStandardUpdaterController
 
+    /// False when Info.plist carries no SUFeedURL (debug builds strip it). Sparkle
+    /// would still start without a feed, show its permission prompt, and raise a
+    /// raw "Update Error" on a manual check — so the missing key is the single
+    /// switch that turns the whole updater off.
+    let isAvailable: Bool
+
     private init() {
         controller = SPUStandardUpdaterController(
             startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+        isAvailable = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil
+        guard isAvailable else { return }
         migrateLegacyLaunchCheckPreference()
         controller.startUpdater()
     }
 
     func checkForUpdates() {
+        guard isAvailable else { return }
         NSApp.activate(ignoringOtherApps: true)
         controller.checkForUpdates(nil)
     }

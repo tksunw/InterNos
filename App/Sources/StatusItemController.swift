@@ -98,9 +98,11 @@ final class StatusItemController: NSObject, StatusPresenting {
         let setupItem = NSMenuItem(title: "Setup & Permissions…", action: #selector(openSetup), keyEquivalent: "")
         setupItem.target = self
         menu.addItem(setupItem)
-        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        menu.addItem(updateItem)
+        if UpdateController.shared.isAvailable {
+            let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            updateItem.target = self
+            menu.addItem(updateItem)
+        }
         menu.addItem(.separator())
         let aboutItem = NSMenuItem(title: "About Internos", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self

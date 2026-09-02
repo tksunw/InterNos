@@ -288,16 +288,12 @@ final class TextInserter: TextInserting {
     /// clipboard swap up front — Electron apps (Claude Desktop, Slack, VS Code…),
     /// CEF apps (Spotify…), and Chromium browsers (Chrome, Edge, Brave, Arc…).
     /// Framework sniff rather than a bundle-ID list so every such app is covered,
-    /// present and future. Cached per bundle path: the answer cannot change while
-    /// the app is running, and this sits on the insertion hot path.
-    private static var chromiumSniffCache: [String: Bool] = [:]
-
+    /// present and future. Deliberately uncached: the sniff measures well under a
+    /// millisecond, and a cached "native" answer from a transient readdir failure
+    /// (mid-update swap, unreadable volume) would disable this gate until restart.
     static func isChromiumApp(_ pid: pid_t) -> Bool {
         guard let bundleURL = NSRunningApplication(processIdentifier: pid)?.bundleURL else { return false }
-        if let cached = chromiumSniffCache[bundleURL.path] { return cached }
-        let result = bundleContainsChromiumFramework(bundleURL)
-        chromiumSniffCache[bundleURL.path] = result
-        return result
+        return bundleContainsChromiumFramework(bundleURL)
     }
 
     private static func bundleContainsChromiumFramework(_ bundleURL: URL) -> Bool {
@@ -330,19 +326,79 @@ final class TextInserter: TextInserting {
         return false
     }
 
+    /// What the focused element reports about its text before/after an AX write.
+    /// Either field is nil when the element doesn't expose that attribute.
+    struct AXTextSnapshot: Equatable {
+        var characterCount: Int?
+        var selectedRange: (location: Int, length: Int)?
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.characterCount == rhs.characterCount
+                && lhs.selectedRange?.location == rhs.selectedRange?.location
+                && lhs.selectedRange?.length == rhs.selectedRange?.length
+        }
+
+        var isEmpty: Bool { characterCount == nil && selectedRange == nil }
+    }
+
+    /// A non-empty write that took effect always moves something we can read:
+    /// the caret lands after the inserted text (location changes, or a selection
+    /// collapses) and the count changes unless it replaced same-length text.
+    /// So "everything readable is identical" means the app dropped the write
+    /// while reporting success. Nothing readable is inconclusive: trust the
+    /// success rather than risk a clipboard paste on top of a real insertion.
+    static func axWriteTookEffect(before: AXTextSnapshot, after: AXTextSnapshot) -> Bool {
+        before.isEmpty || before != after
+    }
+
+    private static func textSnapshot(of element: AXUIElement) -> AXTextSnapshot {
+        var snapshot = AXTextSnapshot()
+        var countRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &countRef) == .success,
+           let count = countRef as? Int {
+            snapshot.characterCount = count
+        }
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+           let rangeRef, CFGetTypeID(rangeRef) == AXValueGetTypeID() {
+            var range = CFRange()
+            if AXValueGetValue(unsafeDowncast(rangeRef as AnyObject, to: AXValue.self), .cfRange, &range) {
+                snapshot.selectedRange = (range.location, range.length)
+            }
+        }
+        return snapshot
+    }
+
     /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the target
     /// app's focused element, which inserts at the caret or replaces the current
     /// selection. Returns false when the element doesn't support settable selected
-    /// text (web areas in some apps, terminals) — the caller falls back to the
-    /// clipboard swap.
+    /// text (web areas in some apps, terminals), or when the app reported success
+    /// for a write it dropped — the caller falls back to the clipboard swap.
+    ///
+    /// The read-back exists because Chromium's AX layer returns success for a
+    /// kAXSelectedTextAttribute write into web content without inserting anything
+    /// (reproduced 2026-09-02, Chrome 152 textarea: value, count and range all
+    /// unchanged after a "successful" set). Native text views (TextEdit, Chrome's
+    /// own omnibox) update count and caret synchronously within the set call, so
+    /// an unchanged snapshot is a dropped write, not a race. `isChromiumApp` stays
+    /// as the fast path that skips the doomed attempt; this is the net for hosts
+    /// the sniff can't see (Chromium under Contents/Helpers, PWA shims…).
     static func accessibilityInsert(_ text: String, targetPID: pid_t) -> Bool {
-        guard let element = focusedElement(ofApplication: targetPID) else { return false }
+        guard !text.isEmpty, let element = focusedElement(ofApplication: targetPID) else { return false }
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
               settable.boolValue else {
             return false
         }
-        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
+        let before = textSnapshot(of: element)
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success else {
+            return false
+        }
+        let tookEffect = axWriteTookEffect(before: before, after: textSnapshot(of: element))
+        if !tookEffect {
+            NSLog("Internos: AX insertion reported success but the element did not change — falling back to clipboard")
+        }
+        return tookEffect
     }
 
     /// Reads the selected text of the frontmost app's focused element (command mode).

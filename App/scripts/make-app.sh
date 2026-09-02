@@ -48,8 +48,9 @@ if [[ "$CONFIG" == "debug" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Internos Dev" "$APP/Contents/Info.plist"
     # A dev build must never be a live Sparkle client on the production feed: an
     # accepted update would install release Internos over this path and corrupt
-    # the debug bundle's separate TCC identity. No feed URL = no update offers.
-    /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP/Contents/Info.plist"
+    # the debug bundle's separate TCC identity. UpdateController treats a missing
+    # feed as "updater disabled" (no start, no prompt, no menu item).
+    /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 
 # Prefer a real identity (stable TCC grants across rebuilds); fall back to ad-hoc.

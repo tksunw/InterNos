@@ -20,9 +20,10 @@ FLAGS=(--force --options runtime --sign "$IDENTITY")
 
 # Resolve the framework's current version instead of hardcoding a letter, and
 # enumerate the nested executables instead of pinning today's roster — both have
-# changed across Sparkle majors. --preserve-metadata=entitlements is applied
-# uniformly: a no-op where there are none, required for Downloader.xpc's sandbox
-# entitlements.
+# changed across Sparkle majors. --preserve-metadata=entitlements only on the XPC
+# services (Downloader.xpc's sandbox entitlements must survive); Autoupdate
+# carries Sparkle's own team-less application-identifier, which must not be
+# stamped into our Developer ID signature.
 VERSION_DIR="$FW/Versions/$(readlink "$FW/Versions/Current" 2>/dev/null || echo Current)"
 NESTED=("$VERSION_DIR"/XPCServices/*.xpc(N) "$VERSION_DIR"/Autoupdate(N) "$VERSION_DIR"/Updater.app(N))
 if (( ${#NESTED} == 0 )); then
@@ -30,6 +31,10 @@ if (( ${#NESTED} == 0 )); then
     exit 1
 fi
 for ITEM in "${NESTED[@]}"; do
-    codesign "${FLAGS[@]}" --preserve-metadata=entitlements "$ITEM"
+    if [[ "$ITEM" == *.xpc ]]; then
+        codesign "${FLAGS[@]}" --preserve-metadata=entitlements "$ITEM"
+    else
+        codesign "${FLAGS[@]}" "$ITEM"
+    fi
 done
 codesign "${FLAGS[@]}" "$FW"

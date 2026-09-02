@@ -32,7 +32,7 @@ cp "$DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 SPARKLE_SLICES=("$DIR"/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-*/Sparkle.framework(N))
 if (( ${#SPARKLE_SLICES} != 1 )); then
     echo "error: expected exactly one macOS Sparkle.framework slice, found ${#SPARKLE_SLICES}" >&2
-    echo "       under $DIR/.build/artifacts — SwiftPM artifact layout changed?" >&2
+    echo "       under $DIR/.build/artifacts. SwiftPM artifact layout changed?" >&2
     exit 1
 fi
 SPARKLE_FW="${SPARKLE_SLICES[1]}"

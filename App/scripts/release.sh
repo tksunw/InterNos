@@ -18,8 +18,23 @@ BUILD_NUM="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$DIR/Resources
 ZIP="$DIR/build/Internos-$VERSION.zip"
 NOTARY_PROFILE="${NOTARY_PROFILE:-internos}"
 REPO="$(cd "$DIR/.." && pwd)"
-# Also hardcoded in Resources/Info.plist (SUFeedURL) — keep in sync on a rename.
-REPO_SLUG="tksunw/InterNos"
+# Derived from Resources/Info.plist (SUFeedURL), a raw.githubusercontent.com URL
+# of the form https://raw.githubusercontent.com/<owner>/<repo>/main/appcast.xml.
+SUFEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$DIR/Resources/Info.plist")"
+REPO_SLUG="$(sed -E 's#^https://raw\.githubusercontent\.com/([^/]+/[^/]+)/.*$#\1#' <<< "$SUFEED_URL")"
+# A bogus/unrecognized URL passes through the sed unchanged, and an unmatched
+# URL still contains slashes (e.g. "https://example.com/x"), so require the
+# result to look like a bare owner/repo slug, not just contain a slash anywhere.
+if [[ "$REPO_SLUG" != */* || "$REPO_SLUG" == */*/* || "$REPO_SLUG" == *:* ]]; then
+    echo "error: could not derive owner/repo from SUFeedURL '$SUFEED_URL' in Resources/Info.plist" >&2
+    exit 1
+fi
+
+SPARKLE_BIN="$DIR/.build/artifacts/sparkle/Sparkle/bin"
+if [[ ! -x "$SPARKLE_BIN/generate_appcast" ]]; then
+    echo "error: $SPARKLE_BIN/generate_appcast not found. Run 'swift build' first (SPM fetches the Sparkle artifact)" >&2
+    exit 1
+fi
 
 # Sparkle compares sparkle:version (CFBundleVersion), not the marketing version.
 # A release that bumps only CFBundleShortVersionString would be invisible to
@@ -94,7 +109,6 @@ fi
 # once with generate_keys) and write appcast.xml at the repo root. Sparkle
 # clients read it from raw.githubusercontent.com (SUFeedURL), so the release
 # isn't visible to updaters until appcast.xml is committed and pushed.
-SPARKLE_BIN="$DIR/.build/artifacts/sparkle/Sparkle/bin"
 APPCAST_STAGE="$DIR/build/appcast-stage"
 rm -rf "$APPCAST_STAGE"
 mkdir -p "$APPCAST_STAGE"

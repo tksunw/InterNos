@@ -115,14 +115,16 @@ private struct GeneralSettingsView: View {
         }
         .onChange(of: playSounds) { AppSettings.shared.playSounds = playSounds }
         .onChange(of: launchAtLogin) { AppSettings.shared.launchAtLogin = launchAtLogin }
-        .onChange(of: automaticUpdateChecks) { UpdateController.shared.automaticallyChecksForUpdates = automaticUpdateChecks }
-        // Sparkle's own one-time permission prompt can flip this out from under the
-        // cached hosting controller; re-read whenever the view could be looked at,
-        // or the toggle misreports whether automatic checks run.
-        .onAppear { automaticUpdateChecks = UpdateController.shared.automaticallyChecksForUpdates }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            automaticUpdateChecks = UpdateController.shared.automaticallyChecksForUpdates
+        .onChange(of: automaticUpdateChecks) {
+            // Skip the echo: the KVO feed below writes this back, and writing an
+            // unchanged value would reset Sparkle's update schedule for nothing.
+            guard automaticUpdateChecks != UpdateController.shared.automaticallyChecksForUpdates else { return }
+            UpdateController.shared.automaticallyChecksForUpdates = automaticUpdateChecks
         }
+        // Sparkle's own one-time permission prompt can flip this out from under the
+        // cached hosting controller, including while this window is already showing
+        // and the app is already active. KVO catches that; onAppear/activation don't.
+        .onReceive(UpdateController.shared.automaticallyChecksForUpdatesPublisher) { automaticUpdateChecks = $0 }
         .onChange(of: recognitionLocale) {
             AppSettings.shared.recognitionLocale = recognitionLocale
             onChange?()

@@ -8,6 +8,7 @@
 // release.sh (key in the login keychain, public key in Info.plist).
 
 import AppKit
+import Combine
 import Sparkle
 
 @MainActor
@@ -41,6 +42,16 @@ final class UpdateController {
     var automaticallyChecksForUpdates: Bool {
         get { controller.updater.automaticallyChecksForUpdates }
         set { controller.updater.automaticallyChecksForUpdates = newValue }
+    }
+
+    /// Sparkle flips the value itself when the user answers its one-time
+    /// permission prompt, so the Settings toggle has to observe rather than
+    /// poll — the prompt can be answered with the window already open and the
+    /// app already frontmost, which no activation or appearance hook catches.
+    /// Safe before startUpdater(): the updater exists from init and Sparkle
+    /// documents the property as KVO compliant.
+    var automaticallyChecksForUpdatesPublisher: AnyPublisher<Bool, Never> {
+        controller.updater.publisher(for: \.automaticallyChecksForUpdates).eraseToAnyPublisher()
     }
 
     /// Pre-Sparkle releases stored a "check at launch" flag (present only if the

@@ -14,7 +14,7 @@ Requirements: macOS 26 (Tahoe) or later, Apple Silicon. Command mode and the Pol
 
 Download the DMG from the [releases page](https://github.com/tksunw/InterNos/releases), drag Internos to Applications, and launch it. Internos lives in the menu bar (a waveform-and-mic icon); it has no Dock icon.
 
-**When updating**: replace the app in Applications, then quit and relaunch Internos. Replacing the file does not restart the running copy.
+**Check for Updates…** in the menu bar downloads, installs, and relaunches Internos in place, no manual replacement needed. For a manual DMG install: replace the app in Applications, then quit and relaunch Internos. Replacing the file does not restart the running copy.
 
 ### Permissions
 
@@ -170,7 +170,7 @@ What changes with a non-English language: recognition and the scratch phrase are
 | Language | Recognition language |
 | Play sounds | Start/success/error sounds |
 | Launch at login | Start Internos when you log in |
-| Check for updates at launch | Off by default. When on, one request to GitHub at startup; this is the only automatic network call Internos can make |
+| Check for updates automatically | Off by default. When on, checks GitHub about once a day and offers to download and install new versions in place. Internos also asks once, on second launch, whether to turn this on |
 
 ### Processing
 
@@ -192,8 +192,8 @@ Replacements and snippets: search, add, edit, enable or disable, delete, and Imp
 
 **Cleanup does nothing.** Check the level in Settings → Processing — it ships **Off**, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 1,000 characters, intentionally get filler removal only.
 
-**After an update, old bugs are still there.** Quit and relaunch: replacing the app in Applications does not restart the running copy. Check the version via the About panel.
+**After an update, old bugs are still there.** If you updated via Check for Updates, the app already relaunched; check the version via the About panel. If you replaced the app in Applications manually, quit and relaunch: replacing the file does not restart the running copy.
 
 ## Privacy in one paragraph
 
-Speech recognition, cleanup, and command mode all run on your Mac. Internos stores only your settings and customizations, never transcripts or audio. The last-dictation buffer lives in memory and dies with the process. Insertion prefers a direct accessibility path that bypasses the clipboard entirely; when an app forces the clipboard fallback, the transcript is briefly on the pasteboard where clipboard managers or Universal Clipboard could see it, as with any copied text. The only network call Internos can make is the optional update check. Full policy: [PRIVACY.md](../PRIVACY.md).
+Speech recognition, cleanup, and command mode all run on your Mac. Internos stores only your settings and customizations, never transcripts or audio. The last-dictation buffer lives in memory and dies with the process. Insertion prefers a direct accessibility path that bypasses the clipboard entirely; when an app forces the clipboard fallback, the transcript is briefly on the pasteboard where clipboard managers or Universal Clipboard could see it, as with any copied text. The only network calls Internos can make are update checks: automatic checks if you turned that setting on, or a manual Check for Updates from the menu. Full policy: [PRIVACY.md](../PRIVACY.md).

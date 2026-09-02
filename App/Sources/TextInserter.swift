@@ -310,12 +310,9 @@ final class TextInserter: TextInserting {
         // current Chromium, verified Chrome 152/Edge/Brave) or ANGLE's libEGL
         // (older Chromium bases that predate the SwiftShader move).
         guard let entries = try? fm.contentsOfDirectory(atPath: frameworks.path) else { return false }
-        let markers = [
-            "Libraries/libvk_swiftshader.dylib",
-            "Versions/Current/Libraries/libvk_swiftshader.dylib",
-            "Libraries/libEGL.dylib",
-            "Versions/Current/Libraries/libEGL.dylib",
-        ]
+        // Top-level Libraries is a symlink to Versions/Current/Libraries in every
+        // Chromium framework and fileExists follows it, so one spelling suffices.
+        let markers = ["Libraries/libvk_swiftshader.dylib", "Libraries/libEGL.dylib"]
         for entry in entries where entry.hasSuffix(" Framework.framework") {
             let framework = frameworks.appendingPathComponent(entry)
             for marker in markers

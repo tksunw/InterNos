@@ -30,6 +30,16 @@ if (( ${#NESTED} == 0 )); then
     echo "error: no nested Sparkle executables under $VERSION_DIR — framework layout changed?" >&2
     exit 1
 fi
+
+# The zero-count check above catches a totally empty roster, but not a partial
+# one — assert the two items we actually depend on resolved.
+MISSING=()
+[[ -e "$VERSION_DIR/Autoupdate" ]] || MISSING+=("Autoupdate")
+[[ -e "$VERSION_DIR/XPCServices/Downloader.xpc" ]] || MISSING+=("XPCServices/Downloader.xpc")
+if (( ${#MISSING} > 0 )); then
+    echo "error: missing required Sparkle nested executable(s) under $VERSION_DIR: ${MISSING[*]}" >&2
+    exit 1
+fi
 for ITEM in "${NESTED[@]}"; do
     if [[ "$ITEM" == *.xpc ]]; then
         codesign "${FLAGS[@]}" --preserve-metadata=entitlements "$ITEM"

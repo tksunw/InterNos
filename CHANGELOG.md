@@ -28,6 +28,16 @@ All notable changes to Internos are documented here. The format follows
 - Only Sparkle's XPC services keep their entitlements when re-signed;
   Autoupdate no longer carries Sparkle's own application-identifier under our
   signature.
+- The "Check for updates automatically" toggle now observes Sparkle's setting
+  directly, so an answer to Sparkle's own permission prompt shows correctly
+  even while the Settings window is already open.
+- `release.sh` derives the GitHub repo from `SUFeedURL` instead of a second
+  hardcoded copy, and checks for Sparkle's `generate_appcast` before building
+  rather than after notarization.
+- `sign-sparkle-framework.sh` fails if Autoupdate or Downloader.xpc is missing
+  from the Sparkle framework, instead of silently signing a partial roster.
+- The manual now describes in-place updates via "Check for Updates…" and the
+  current automatic-check setting.
 
 ## [2.1.1] - 2026-09-01
 

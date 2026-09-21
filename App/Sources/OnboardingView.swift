@@ -74,7 +74,7 @@ final class OnboardingModel: ObservableObject {
 
     func startPolling() {
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refresh() }
         }
     }
@@ -126,8 +126,10 @@ final class OnboardingModel: ObservableObject {
             do {
                 if let request = try await store.installationRequest() {
                     let progress = request.progress
+                    // Strong self: the enclosing Task already holds it, and the defer
+                    // above invalidates this ticker on every exit path.
                     progressTicker = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
-                        Task { @MainActor [weak self] in self?.downloadProgress = progress.fractionCompleted }
+                        Task { @MainActor in self.downloadProgress = progress.fractionCompleted }
                     }
                     try await request.downloadAndInstall()
                 }

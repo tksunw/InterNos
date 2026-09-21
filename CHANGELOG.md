@@ -4,6 +4,20 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Shortcuts actions: **Toggle Dictation** (start, or stop and insert; works in
+  either activation mode), **Paste Last Dictation**, and **Set Cleanup Level**.
+  Find them by searching the Shortcuts action list for "Internos". None of
+  them hands transcript text to Shortcuts: the last dictation stays in
+  Internos's memory, as before.
+
+### Changed
+- Internos now requires macOS 27 (Golden Gate). macOS 26 users stay on 2.1.2;
+  the update feed will not offer them this release.
+- Sparkle updated to 2.10.0, its macOS 27 release.
+
 ## [2.1.2] - 2026-09-02
 
 ### Fixed

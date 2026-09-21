@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = DictationController(customizations: CustomizationStore())
         self.controller = controller
+        DictationController.current = controller
         Task { await controller.start() }
     }
 }

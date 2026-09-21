@@ -6,7 +6,7 @@
 
 Internos is a macOS menu bar utility for voice dictation. Hold a key, speak, release, and your words appear at the cursor in whatever app you're using. All speech recognition and text processing runs on your Mac using Apple's built-in frameworks. There is no cloud service, no account, and no network traffic in the dictation path.
 
-Requirements: macOS 26 (Tahoe) or later, Apple Silicon. Command mode and the Polished cleanup level also need Apple Intelligence enabled in System Settings; everything else, filler removal included, runs without it.
+Requirements: macOS 27 (Golden Gate) or later, Apple Silicon. Command mode and the Polished cleanup level also need Apple Intelligence enabled in System Settings; everything else, filler removal included, runs without it.
 
 ## Getting started
 
@@ -150,6 +150,16 @@ The menu bar menu keeps your most recent transcript available:
 - **Clear Last Dictation**: forgets it immediately.
 
 This is held in memory only. It is never written to disk, and quitting Internos erases it. It is a recovery buffer, not a history; Internos deliberately keeps no transcript history.
+
+## Shortcuts actions
+
+Internos offers three actions to the Shortcuts app. They don't appear as ready-made tiles; add an action to a shortcut and search the action list for "Internos":
+
+- **Toggle Dictation**: starts dictating, or stops and inserts the text. It works in either activation mode, so you can bind it to a keyboard shortcut or a hardware button.
+- **Paste Last Dictation**: the same as the menu item.
+- **Set Cleanup Level**: switches smart cleanup between Off, Light and Polished, for example from a Focus automation.
+
+If Internos is paused, still starting, or missing a permission, the action says so instead of doing nothing. None of these actions hands your transcript to Shortcuts; dictated text only ever goes to the cursor.
 
 ## Languages
 

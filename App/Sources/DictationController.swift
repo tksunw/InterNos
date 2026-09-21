@@ -64,6 +64,10 @@ final class DictationController {
     var lastExternalFrontmostPID: pid_t?
     private var workspaceObserver: NSObjectProtocol?
 
+    /// The running app's controller, for App Intents (the system calls them
+    /// in-process, with no route to AppDelegate's instance). Set by AppDelegate only.
+    static weak var current: DictationController?
+
     private(set) var state: State = .settingUp
     private var analyzerFormat: AVAudioFormat?
     private var utteranceTask: Task<String, Error>?
@@ -256,8 +260,22 @@ final class DictationController {
         case .pushToTalk:
             beginUtterance()
         case .toggle:
-            if state == .recording { endUtterance() } else { beginUtterance() }
+            toggleDictation()
         }
+    }
+
+    /// Mode-independent start/stop, shared by the toggle-mode hotkey and App Intents.
+    /// Returns false when nothing happened: the state can neither start nor stop a
+    /// dictation (paused, setting up, command recording), or the recorder failed to start.
+    @discardableResult
+    func toggleDictation() -> Bool {
+        guard state != .paused else { return false }
+        if state == .recording {
+            endUtterance()
+            return true
+        }
+        beginUtterance()
+        return state == .recording
     }
 
     func hotkeyUp() {
@@ -314,7 +332,7 @@ final class DictationController {
         }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { note in
+        ) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             let pid = app.processIdentifier

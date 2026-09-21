@@ -10,7 +10,7 @@ Tools like Wispr Flow are excellent, but they send your voice to cloud servers. 
 
 ## Requirements
 
-- **macOS 26 (Tahoe) or later** — the `SpeechAnalyzer`/`SpeechTranscriber` APIs don't exist earlier
+- **macOS 27 (Golden Gate) or later**
 - **Apple Silicon**
 - English (US) in v1
 

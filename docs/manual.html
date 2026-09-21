@@ -74,6 +74,7 @@ nav.toc a:hover { text-decoration: underline; }
 <li><a href="#commandmode">Command mode</a></li>
 <li><a href="#scratch">Scratch that</a></li>
 <li><a href="#recovery">Last dictation recovery</a></li>
+<li><a href="#shortcuts">Shortcuts actions</a></li>
 <li><a href="#languages">Languages</a></li>
 <li><a href="#settings">Settings reference</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -83,7 +84,7 @@ nav.toc a:hover { text-decoration: underline; }
 
 <h2 id="what">What Internos is</h2>
 <p>Internos is a macOS menu bar utility for voice dictation. Hold a key, speak, release, and your words appear at the cursor in whatever app you're using. All speech recognition and text processing runs on your Mac using Apple's built-in frameworks. There is no cloud service, no account, and no network traffic in the dictation path.</p>
-<p>Requirements: macOS 26 (Tahoe) or later, Apple Silicon. Command mode and the Polished cleanup level also need Apple Intelligence enabled in System Settings; everything else, filler removal included, runs without it.</p>
+<p>Requirements: macOS 27 (Golden Gate) or later, Apple Silicon. Command mode and the Polished cleanup level also need Apple Intelligence enabled in System Settings; everything else, filler removal included, runs without it.</p>
 
 <h2 id="start">Getting started</h2>
 
@@ -200,6 +201,15 @@ nav.toc a:hover { text-decoration: underline; }
 <li><strong>Clear Last Dictation</strong>: forgets it immediately.</li>
 </ul>
 <p>This is held in memory only. It is never written to disk, and quitting Internos erases it. It is a recovery buffer, not a history; Internos deliberately keeps no transcript history.</p>
+
+<h2 id="shortcuts">Shortcuts actions</h2>
+<p>Internos offers three actions to the Shortcuts app. They don't appear as ready-made tiles; add an action to a shortcut and search the action list for "Internos":</p>
+<ul>
+<li><strong>Toggle Dictation</strong>: starts dictating, or stops and inserts the text. It works in either activation mode, so you can bind it to a keyboard shortcut or a hardware button.</li>
+<li><strong>Paste Last Dictation</strong>: the same as the menu item.</li>
+<li><strong>Set Cleanup Level</strong>: switches smart cleanup between Off, Light and Polished, for example from a Focus automation.</li>
+</ul>
+<p>If Internos is paused, still starting, or missing a permission, the action says so instead of doing nothing. None of these actions hands your transcript to Shortcuts; dictated text only ever goes to the cursor.</p>
 
 <h2 id="languages">Languages</h2>
 <p><strong>Settings → General → Language</strong> lists every language the on-device recognizer supports. Switching may trigger a one-time system download of that language's speech model.</p>

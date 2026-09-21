@@ -129,7 +129,7 @@ struct FoundationModelCleaner: SmartCleaning {
             // sampling made the same utterance clean once and drift the next time.
             return try await session.respond(
                 to: CleanupPrompt.prompt(for: text),
-                options: GenerationOptions(sampling: .greedy)
+                options: GenerationOptions(samplingMode: .greedy)
             ).content
         } catch {
             // Refusals, guardrails, context exhaustion, cancellation: soft failure.

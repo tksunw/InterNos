@@ -45,7 +45,7 @@ struct FoundationModelTransformer: TextTransforming {
             // should produce the same rewrite twice running.
             return try await session.respond(
                 to: CommandPrompt.prompt(instruction: instruction, text: text),
-                options: GenerationOptions(sampling: .greedy)
+                options: GenerationOptions(samplingMode: .greedy)
             ).content
         } catch {
             NSLog("Internos: command transform model error (\(type(of: error)))")

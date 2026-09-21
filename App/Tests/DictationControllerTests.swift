@@ -48,6 +48,22 @@ final class DictationControllerTests: XCTestCase {
         return controller
     }
 
+    // MARK: toggleDictation — shared by the toggle-mode hotkey and App Intents
+
+    func testToggleDictationStartsStopsAndRefusesWhenNotReady() async {
+        let notReady = makeController() // still .settingUp
+        XCTAssertFalse(notReady.toggleDictation(), "must report failure before the pipeline is ready")
+
+        let controller = await makeReadyController()
+        XCTAssertTrue(controller.toggleDictation())
+        XCTAssertEqual(controller.state, .recording)
+        XCTAssertTrue(controller.toggleDictation())
+        XCTAssertNotEqual(controller.state, .recording, "second toggle must stop the recording")
+
+        controller.togglePause()
+        XCTAssertFalse(controller.toggleDictation(), "paused must refuse, so the intent can say so")
+    }
+
     // MARK: IR-001 — ordered, serialized insertion
 
     func testInsertionOrderFollowsRecordingOrder() async {

@@ -133,7 +133,7 @@ final class StatusItemController: NSObject, StatusPresenting {
         statusItem.button?.image = image
         if state.autoRevertsToIdle {
             // Fail loud but briefly (PRD §9), then return to idle.
-            revertTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { _ in
+            revertTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, !self.isPaused else { return }
                     self.setState(.idle)

@@ -168,7 +168,7 @@ nav.toc a:hover { text-decoration: underline; }
 <p>Rules that keep cleanup safe:</p>
 <ul>
 <li>Utterances containing snippets or spoken commands never go through the AI model. They get deterministic filler removal only ("um"/"uh"-class sounds), so the model can never invent text around your snippets.</li>
-<li>Long utterances (over roughly 1,000 characters) skip the model and get filler removal only. Asking the model for a faithful revision of a long dictation takes longer than it is worth waiting for, and rushing it was how the model ended up answering dictations instead of tidying them.</li>
+<li>Long utterances (over roughly 500 characters) skip the model and get filler removal only. Asking the model for a faithful revision of a long dictation takes longer than it is worth waiting for, and rushing it was how the model ended up answering dictations instead of tidying them.</li>
 <li>If the model is slow or produces something suspicious — a reply rather than a revision, a link you never said, a refusal — Internos falls back to your exact words plus filler removal. A cleanup failure never loses a dictation.</li>
 <li>Cleanup currently applies to English dictation only. Other languages are inserted exactly as recognized.</li>
 <li>Your original words are always recoverable: when cleanup changed the text, the menu shows <strong>Copy Last Raw Dictation</strong>.</li>
@@ -241,7 +241,7 @@ nav.toc a:hover { text-decoration: underline; }
 <p><strong>Text doesn't insert, error sound plays.</strong> Usually one of: a password field has focus (Secure Input; Internos refuses by design), you switched apps before the text landed, or Accessibility permission was revoked. In every case the transcript is on the clipboard and in the recovery menu.</p>
 <p><strong>Command mode says "Select some text first" although text is selected.</strong> The frontmost app doesn't expose its selection to macOS accessibility. Most native apps do; some Electron apps and browsers don't. Try it in TextEdit to confirm command mode itself works.</p>
 <p><strong>Snippet or replacement doesn't fire.</strong> Check it's enabled in Customizations, and say the name the way you defined it. For spelled-letter names, variants are matched automatically.</p>
-<p><strong>Cleanup does nothing.</strong> Check the level in Settings → Processing — it ships <strong>Off</strong>, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 1,000 characters, intentionally get filler removal only.</p>
+<p><strong>Cleanup does nothing.</strong> Check the level in Settings → Processing — it ships <strong>Off</strong>, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 500 characters, intentionally get filler removal only.</p>
 <p><strong>After an update, old bugs are still there.</strong> Quit and relaunch: replacing the app in Applications does not restart the running copy. Check the version via the About panel.</p>
 
 <h2 id="privacy">Privacy in one paragraph</h2>

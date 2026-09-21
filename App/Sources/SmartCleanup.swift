@@ -148,12 +148,22 @@ struct SmartCleanupCoordinator: SmartCleaning {
     /// At 4,000 characters it could not: the only outputs that beat the clock were
     /// short ones, i.e. the drifted answers, and the faithful revisions were the
     /// ones thrown away. The cap and the deadline are one setting, not two.
-    /// ponytail: 1,000 chars ≈ 4 s worst case; retune from the "cleanup applied"
-    /// log lines (they carry elapsed + char counts) if real hardware differs.
-    static let maxInputLength = 1000
+    /// ponytail: measured, not derived. AFM 3 on an M2 (2026-09-21), Light mode, a
+    /// token-dense text (short sentences, digits): 375 chars 2.2 s, 469 chars 2.7 s,
+    /// 563 chars 3.2 s, against limit(for:) of 2.75 / 2.94 / 3.13 s. It crosses near
+    /// 540 chars, so at the old 1,000 cap long utterances waited out the deadline
+    /// and fell back anyway. Cost tracks tokens, not characters: a prosier text ran
+    /// ~25% faster per character, so don't extrapolate from one sample. 500 leaves
+    /// ~8% margin here; re-measure with LiveModelCleanupTests after a model or
+    /// hardware change, and move this and the deadline together.
+    static let maxInputLength = 500
 
     var cleaner: any SmartCleaning
     var deadline: Duration = .seconds(2)
+
+    /// Generation time scales with length; a fixed deadline would keep biasing
+    /// the race toward whatever output was shortest.
+    func limit(for text: String) -> Duration { deadline + .milliseconds(text.count * 2) }
 
     func clean(_ text: String, mode: CleanupMode) async -> String? {
         guard mode != .off, !text.isEmpty else { return nil }
@@ -162,10 +172,7 @@ struct SmartCleanupCoordinator: SmartCleaning {
             return nil
         }
         let start = ContinuousClock.now
-        // Generation time scales with length; a fixed deadline would keep biasing
-        // the race toward whatever output was shortest.
-        let limit = deadline + .milliseconds(text.count * 2)
-        let raw = await Self.withDeadline(limit) { [cleaner] in
+        let raw = await Self.withDeadline(limit(for: text)) { [cleaner] in
             await cleaner.clean(text, mode: mode)
         }
         let elapsed = ContinuousClock.now - start

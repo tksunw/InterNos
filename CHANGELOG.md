@@ -4,6 +4,14 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Smart cleanup now skips the model for dictations over about 500 characters
+  (was 1,000) and goes straight to filler removal. Measured on macOS 27's new
+  on-device model, longer utterances waited out the full cleanup deadline of
+  three to four seconds and then fell back anyway; now they insert immediately.
+
 ## [2.2.0] - 2026-09-20
 
 ### Added

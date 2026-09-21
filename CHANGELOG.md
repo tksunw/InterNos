@@ -4,7 +4,7 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.2.1] - 2026-09-21
 
 ### Changed
 - Smart cleanup now skips the model for dictations over about 500 characters
@@ -305,6 +305,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[2.2.1]: https://github.com/tksunw/InterNos/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/tksunw/InterNos/compare/v2.1.2...v2.2.0
 [2.1.2]: https://github.com/tksunw/InterNos/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/tksunw/InterNos/compare/v2.1.0...v2.1.1

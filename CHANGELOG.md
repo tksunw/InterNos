@@ -4,7 +4,7 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.2.0] - 2026-09-20
 
 ### Added
 - Shortcuts actions: **Toggle Dictation** (start, or stop and insert; works in
@@ -297,6 +297,7 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[2.2.0]: https://github.com/tksunw/InterNos/compare/v2.1.2...v2.2.0
 [2.1.2]: https://github.com/tksunw/InterNos/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/tksunw/InterNos/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/tksunw/InterNos/compare/v2.0.1...v2.1.0

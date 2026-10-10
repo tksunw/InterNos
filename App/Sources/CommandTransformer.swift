@@ -70,7 +70,7 @@ struct CommandTransformCoordinator: TextTransforming {
             return nil
         }
         let start = ContinuousClock.now
-        let raw = await Self.withDeadline(deadline) { [transformer] in
+        let raw: String? = await withDeadline(deadline) { [transformer] in
             await transformer.transform(text, instruction: instruction)
         }
         let elapsed = ContinuousClock.now - start
@@ -103,33 +103,5 @@ struct CommandTransformCoordinator: TextTransforming {
             return nil
         }
         return value
-    }
-
-    /// Same non-blocking race as SmartCleanupCoordinator: the deadline never waits
-    /// on a model call that ignores cancellation.
-    private static func withDeadline(
-        _ limit: Duration, _ work: @escaping @Sendable () async -> String?
-    ) async -> String? {
-        final class Once: @unchecked Sendable {
-            private let lock = NSLock()
-            private var continuation: CheckedContinuation<String?, Never>?
-            init(_ continuation: CheckedContinuation<String?, Never>) { self.continuation = continuation }
-            func resume(_ value: String?) {
-                let taken: CheckedContinuation<String?, Never>? = lock.withLock {
-                    defer { continuation = nil }
-                    return continuation
-                }
-                taken?.resume(returning: value)
-            }
-        }
-        return await withCheckedContinuation { continuation in
-            let once = Once(continuation)
-            let workTask = Task { once.resume(await work()) }
-            Task {
-                try? await Task.sleep(for: limit)
-                workTask.cancel()
-                once.resume(nil)
-            }
-        }
     }
 }

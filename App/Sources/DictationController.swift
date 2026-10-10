@@ -6,7 +6,7 @@
 // - Insertions are serialized in recording order via `insertionChain`, even when
 //   transcriptions finish out of order.
 // - A superseded utterance (a newer recording started) may still insert, but must not
-//   touch the icon, indicator, or sounds owned by the newer one (`utteranceGeneration`).
+//   touch the icon, indicator, or sounds owned by the newer one (`uiOwner`).
 // - Pause bumps `pauseEpoch`: work from an earlier epoch can never reach the inserter.
 //   A transcript that completed before cancellation is preserved on the clipboard
 //   without being injected.
@@ -46,8 +46,20 @@ final class DictationController {
     private let transformer: any TextTransforming
     private let selectionProvider: @MainActor () -> (text: String, pid: pid_t)?
     private let commandModeAvailable: @MainActor () -> Bool
+    /// How long after command recording starts a cancel still counts as a slow
+    /// shortcut and stays silent. Past it the user has been speaking, and a
+    /// stray key or click that ends the recording has to say so.
+    /// ponytail: one second is a guess at "slow shortcut" versus "mid-instruction".
+    private let quietCancelWindow: Duration
+    private var commandRecordingStarted: ContinuousClock.Instant?
     /// Selection captured when the command key went down; consumed on completion.
     private var commandContext: (selection: String, target: pid_t)?
+    /// Why the current command-key hold couldn't start command mode; shown on release.
+    private var pendingCommandFailure: String?
+    /// The dictation that owned the UI and was still finalizing when a command
+    /// recording took over, so a canceled command can hand the UI back. Cleared
+    /// when that dictation completes.
+    private var finalizingBeforeCommand: Int?
     private lazy var settingsWindow = SettingsWindowController()
     private lazy var onboarding = OnboardingWindowController()
 
@@ -69,11 +81,18 @@ final class DictationController {
     static weak var current: DictationController?
 
     private(set) var state: State = .settingUp
-    private var analyzerFormat: AVAudioFormat?
-    private var utteranceTask: Task<String, Error>?
-    // Bumped on every recording start; a previous utterance's completion must not
-    // clobber the icon/indicator/sounds of a newer one (rapid re-press).
+    /// The audio format of the ready pipeline and the language it is for. Kept
+    /// as a pair and handed to every transcription together.
+    private var analyzer: (format: AVAudioFormat, locale: Locale)?
+    /// The recording in progress (dictation or command instruction) and the
+    /// language it was started in.
+    private var utterance: (task: Task<String, Error>, localeIdentifier: String)?
+    // Bumped on every recording start, never rewound: names one utterance.
     private var utteranceGeneration = 0
+    // The utterance whose completion may touch the icon/indicator/sounds: the
+    // newest recording (rapid re-press supersedes the older one), or the
+    // dictation a canceled command recording handed the UI back to.
+    private var uiOwner = 0
     // Bumped on pause; completions from an earlier epoch are suppressed entirely.
     private var pauseEpoch = 0
     // FIFO insertion order: each finalization awaits the previous one before inserting.
@@ -82,8 +101,13 @@ final class DictationController {
     private var tapFailed = false
     // The tap survives locale re-initialization; it must be created only once.
     private var hotkeyStarted = false
-    /// Locale the ready pipeline was initialized with (v2 multi-language).
-    private var activeLocaleIdentifier: String?
+    /// Locale the latest setup attempt was for, whether it is ready, still in
+    /// flight, or failed (v2 multi-language). A pick that differs starts a new one.
+    private var setupLocaleIdentifier: String?
+    /// Bumped on every language change; a setup from an earlier one is abandoned.
+    private var setupGeneration = 0
+    /// The pause began mid-setup and that setup has not failed since.
+    private var pausedDuringSetup = false
 
     init(
         hotkey: any HotkeyMonitoring = HotkeyMonitor(),
@@ -101,7 +125,8 @@ final class DictationController {
         onboardingPresenter: (@MainActor (Bool, @escaping () -> Void) -> Void)? = nil,
         transformer: any TextTransforming = CommandTransformCoordinator(transformer: FoundationModelTransformer()),
         selectionProvider: (@MainActor () -> (text: String, pid: pid_t)?)? = nil,
-        commandModeAvailable: (@MainActor () -> Bool)? = nil
+        commandModeAvailable: (@MainActor () -> Bool)? = nil,
+        quietCancelWindow: Duration = .seconds(1)
     ) {
         self.hotkey = hotkey
         self.recorder = recorder
@@ -115,11 +140,10 @@ final class DictationController {
         self.customizations = store
         self.processingSettings = processingSettings ?? {
             guard let store else { return ProcessingSettings() }
-            // Model cleanup only for English recognition; other languages take the
-            // deterministic path (the model translates under English instructions).
-            let mode = AppSettings.shared.cleanupMode
-                .effective(forLocaleIdentifier: AppSettings.shared.recognitionLocale)
-            return store.processingSnapshot(cleanupMode: mode)
+            // The mode as set. `endUtterance` narrows it to what the utterance's
+            // own language supports; gating here on the live setting as well could
+            // only ever switch cleanup off for a language that does support it.
+            return store.processingSnapshot(cleanupMode: AppSettings.shared.cleanupMode)
         }
         self.playSound = playSound ?? { name in
             guard AppSettings.shared.playSounds else { return }
@@ -130,6 +154,11 @@ final class DictationController {
         self.transformer = transformer
         self.selectionProvider = selectionProvider ?? { TextInserter.accessibilitySelectedText() }
         self.commandModeAvailable = commandModeAvailable ?? { CleanupAvailability.isAvailable }
+        self.quietCancelWindow = quietCancelWindow
+        // The keys the inserter posts (a paste, backspaces) are Internos's own,
+        // not the user turning a command-key hold into a shortcut.
+        inserter.willPostKeyPresses = { [hotkey] in hotkey.ownKeyPresses($0) }
+        statusItem.onErrorDismissed = { [weak self] in self?.handleLocaleChangeIfNeeded() }
     }
 
     func start() async {
@@ -156,22 +185,42 @@ final class DictationController {
         // migration). No network call happens without user consent.
         _ = UpdateController.shared
 
-        let modelInstalled = await engine.modelStatus() == .installed
+        let selected = TranscriptionEngine.selectedLocale
+        let modelInstalled = await engine.modelStatus(locale: selected) == .installed
         if PermissionsService.allGranted && modelInstalled {
-            await initializePipeline()
+            await initializePipeline(locale: selected)
         } else {
             // First run (or a permission was revoked): walk the user through setup.
+            setupLocaleIdentifier = selected.identifier
             statusItem.setState(.disabled)
             showOnboarding()
         }
     }
 
-    func initializePipeline() async {
+    /// `locale`: the language this setup is for. A caller that has just checked
+    /// one (its model is installed) passes that one, not whatever is selected by
+    /// the time this runs.
+    func initializePipeline(locale: Locale = TranscriptionEngine.selectedLocale) async {
         guard !pipelineReady else { return }
+        // A change while the model calls are in flight starts a newer setup, and
+        // this one must not finish over it.
+        let generation = setupGeneration
+        let format: Result<AVAudioFormat, Error>
         do {
-            try await engine.ensureModel()
-            analyzerFormat = try await engine.analyzerFormat()
+            try await engine.ensureModel(locale: locale)
+            format = .success(try await engine.analyzerFormat(locale: locale))
         } catch {
+            format = .failure(error)
+        }
+        // Superseded by a newer language pick, or beaten to it by another call
+        // (the setup window finished while this ran). The winner's language is
+        // the one on record, so a later pick is compared against what is loaded.
+        guard generation == setupGeneration, !pipelineReady else { return }
+        setupLocaleIdentifier = locale.identifier
+        switch format {
+        case .success(let format):
+            analyzer = (format, locale)
+        case .failure(let error):
             NSLog("Internos: model setup failed: \(error)")
             enterSetupFailed()
             return
@@ -181,40 +230,76 @@ final class DictationController {
         hotkey.onKeyUp = { [weak self] in self?.hotkeyUp() }
         hotkey.onSecondaryDown = { [weak self] in self?.commandKeyDown() }
         hotkey.onSecondaryUp = { [weak self] in self?.commandKeyUp() }
+        hotkey.onSecondaryCancel = { [weak self] in self?.commandKeyCancel() }
         if !hotkeyStarted && !hotkey.start() {
             // Input Monitoring granted after launch doesn't reach an existing process;
             // the onboarding window offers a restart in this state.
             NSLog("Internos: event tap creation failed — restart needed after Input Monitoring grant")
             tapFailed = true
             enterSetupFailed()
-            showOnboarding()
+            // Not behind a menu that says paused; the failure icon shows on resume
+            // and the setup window is one menu item away.
+            if state != .paused { showOnboarding() }
         } else {
             hotkeyStarted = true
             NSLog("Internos: ready")
             pipelineReady = true
-            activeLocaleIdentifier = AppSettings.shared.recognitionLocale
-            state = .idle
-            statusItem.setState(.idle)
             statusItem.refreshHotkeyHint()
+            // Paused while setup was in flight: stay paused. Resume reads `pipelineReady`.
+            guard state != .paused else { return }
+            rest(in: .idle, icon: .idle)
         }
+    }
+
+    /// The one way into a resting state. A language picked while a recording, a
+    /// finalization, or a pause owned `state` is applied here, so no path back to
+    /// rest can forget it.
+    private func rest(in resting: State, icon: AppState) {
+        statusItem.setState(icon)
+        state = resting
+        // Setup would replace an error icon at once. A failure is seen first: the
+        // status item says when its time is up (`onErrorDismissed`, wired in
+        // init), and a dictation started meanwhile stays in the loaded language.
+        if icon != .error { handleLocaleChangeIfNeeded() }
     }
 
     /// A recognition-language change needs a new analyzer format and possibly a new
     /// model asset. Re-initialize; if the model for the new language isn't installed,
-    /// the setup window's download step takes over.
+    /// the setup window's download step takes over. Never from under a recording,
+    /// a finalization, or a pause: those own `state` until they end, and `rest`
+    /// calls back here when they do, so the change is deferred, not lost. A setup
+    /// already under way for an earlier pick is superseded (`setupGeneration`).
     func handleLocaleChangeIfNeeded() {
-        let selected = AppSettings.shared.recognitionLocale
-        guard let active = activeLocaleIdentifier, selected != active, state != .recording, state != .finalizing else { return }
+        let selected = TranscriptionEngine.selectedLocale
+        // A failed event tap needs a relaunch; no language can fix that, and
+        // restarting setup would only take the failure indicator down (IR-007).
+        guard let current = setupLocaleIdentifier, selected.identifier != current, !tapFailed,
+              state == .idle || state == .setupFailed || state == .settingUp else { return }
         NSLog("Internos: recognition language changed — reinitializing pipeline")
+        beginSetup(for: selected)
+    }
+
+    /// Starts setup for `locale` over whatever setup came before it.
+    private func beginSetup(for locale: Locale) {
         pipelineReady = false
+        setupGeneration += 1
+        setupLocaleIdentifier = locale.identifier
+        let generation = setupGeneration
         state = .settingUp
         statusItem.setState(.disabled)
         Task {
-            if await engine.modelStatus() == .installed {
-                await initializePipeline()
-            } else {
+            let installed = await engine.modelStatus(locale: locale) == .installed
+            guard generation == setupGeneration else { return }
+            // The same gate as start(): the setup window owns missing permissions
+            // as well as a missing model. (A tap that is already running proves
+            // the permissions, and keeps this path testable without them.)
+            if installed && (hotkeyStarted || PermissionsService.allGranted) {
+                await initializePipeline(locale: locale)
+            } else if state != .paused {
                 showOnboarding()
             }
+            // Paused meanwhile: no setup window behind a menu that says paused.
+            // Resume starts this setup over.
         }
     }
 
@@ -222,8 +307,10 @@ final class DictationController {
     /// auto-reverts to an idle icon that would imply a working pipeline.
     private func enterSetupFailed() {
         pipelineReady = false
-        state = .setupFailed
-        statusItem.setState(.setupFailed)
+        // Paused while setup was in flight: stay paused. Resume shows the failure.
+        pausedDuringSetup = false
+        guard state != .paused else { return }
+        rest(in: .setupFailed, icon: .setupFailed)
     }
 
     private func showOnboarding() {
@@ -286,29 +373,40 @@ final class DictationController {
     func togglePause() {
         if state == .paused {
             statusItem.isPaused = false
+            // Resume implies readiness only when the pipeline actually is (IR-004).
             if pipelineReady {
-                // Resume implies readiness only when the pipeline actually is (IR-004).
-                state = .idle
-                statusItem.setState(.idle)
+                rest(in: .idle, icon: .idle)
+            } else if pausedDuringSetup {
+                // Setup neither finished nor failed under the pause. Start it over
+                // for the language selected now: the step that would have opened
+                // the setup window stood down while paused.
+                beginSetup(for: TranscriptionEngine.selectedLocale)
             } else {
-                enterSetupFailed()
+                rest(in: .setupFailed, icon: .setupFailed)
             }
         } else {
             statusItem.isPaused = true
+            pausedDuringSetup = state == .settingUp
             state = .paused
             statusItem.setState(.disabled)
             // Suppress every pending finalization and insertion (IR-004): completions
             // from before this point can no longer reach the inserter or the UI.
             pauseEpoch += 1
-            if let task = utteranceTask {
-                // Abandon an in-flight recording without inserting.
-                recorder.stop()
-                task.cancel()
-                utteranceTask = nil
-            }
-            commandContext = nil
+            abandonRecording()
+            pendingCommandFailure = nil
+            finalizingBeforeCommand = nil
             indicator.hide()
         }
+    }
+
+    /// Stops an in-flight recording (dictation or command) and throws it away.
+    private func abandonRecording() {
+        if let utterance {
+            recorder.stop()
+            utterance.task.cancel()
+            self.utterance = nil
+        }
+        commandContext = nil
     }
 
     private func openSettings() {
@@ -317,6 +415,27 @@ final class DictationController {
             self?.hotkey.reloadSettings()
             self?.statusItem.refreshHotkeyHint()
             self?.handleLocaleChangeIfNeeded()
+        }
+    }
+
+    // MARK: - insertion chain
+
+    /// The one way anything reaches the inserter. FIFO: each link runs only after
+    /// the one before it fully completed, even if its own `prepare` (transcription,
+    /// cleanup, transform) would have finished first (IR-001). And before `complete`
+    /// inserts or deletes, the key events of the previous link have been given
+    /// time to land, so that invariant can't be forgotten at a call site.
+    private func chainInsertion<Value>(
+        after prepare: @escaping @MainActor () async -> Value,
+        _ complete: @escaping @MainActor (DictationController, Value) -> Void
+    ) {
+        let previous = insertionChain
+        insertionChain = Task { [weak self] in
+            await previous?.value
+            let value = await prepare()
+            await self?.inserter.settlePendingEvents()
+            guard let self else { return }
+            complete(self, value)
         }
     }
 
@@ -354,19 +473,17 @@ final class DictationController {
         guard let value = volatileStore.current else { return }
         let target = lastExternalFrontmostPID
         let epoch = pauseEpoch
-        let previous = insertionChain
-        insertionChain = Task { [weak self] in
-            await previous?.value
-            guard let self, self.pauseEpoch == epoch else { return }
+        chainInsertion(after: {}) { controller, _ in
+            guard controller.pauseEpoch == epoch else { return }
             do {
-                try self.inserter.insert(value.final, target: target)
+                try controller.inserter.insert(value.final, target: target)
                 NSLog("Internos: last dictation pasted")
-                self.lastInsertion = (value.final.count, target)
-                self.playSound("Purr")
+                controller.lastInsertion = (value.final.count, target)
+                controller.playSound("Purr")
             } catch {
-                self.handleInsertionFailure(error, transcript: value.final)
-                self.statusItem.setState(.error)
-                self.playSound("Basso")
+                controller.handleInsertionFailure(error, transcript: value.final)
+                controller.statusItem.setState(.error)
+                controller.playSound("Basso")
             }
         }
     }
@@ -374,7 +491,7 @@ final class DictationController {
     // MARK: - utterance lifecycle
 
     func beginUtterance() {
-        guard state == .idle || state == .finalizing, let format = analyzerFormat else {
+        guard state == .idle || state == .finalizing, let (format, locale) = analyzer else {
             NSLog("Internos: keyDown ignored (state not ready for recording)")
             return
         }
@@ -382,15 +499,17 @@ final class DictationController {
         do {
             let stream = try recorder.start(analyzerFormat: format, deviceUID: AppSettings.shared.inputDeviceUID)
             utteranceGeneration += 1
+            uiOwner = utteranceGeneration
+            pendingCommandFailure = nil // this dictation owns the feedback now
             let gen = utteranceGeneration
             // Transcription consumes buffers live during the hold; finalize unblocks on
             // release. Partial results drive the live preview (display only).
             let onPartial: @Sendable (String) -> Void = { [weak self] text in
                 Task { @MainActor in self?.handlePartial(text, generation: gen) }
             }
-            utteranceTask = Task { [engine] in
-                try await engine.transcribe(input: stream, format: format, onPartial: onPartial)
-            }
+            utterance = (Task { [engine] in
+                try await engine.transcribe(input: stream, format: format, locale: locale, onPartial: onPartial)
+            }, locale.identifier)
             state = .recording
             statusItem.setState(.recording)
             indicator.show(.recording)
@@ -406,13 +525,13 @@ final class DictationController {
     /// Live preview: only the current utterance may paint the indicator, and only
     /// while it's actually on screen (recording/finalizing).
     private func handlePartial(_ text: String, generation: Int) {
-        guard generation == utteranceGeneration, state == .recording || state == .finalizing else { return }
+        guard generation == uiOwner, state == .recording || state == .finalizing else { return }
         indicator.showPartial(text)
     }
 
     func endUtterance() {
-        guard state == .recording, let task = utteranceTask else { return }
-        utteranceTask = nil
+        guard state == .recording, let (task, localeIdentifier) = utterance else { return }
+        utterance = nil
         recorder.stop() // finishes the stream → analyzer sees end of input
         NSLog("Internos: recording stopped, finalizing")
         state = .finalizing
@@ -424,25 +543,43 @@ final class DictationController {
         // The app under the cursor right now is the authoritative paste target (IR-003).
         let target = frontmostPID()
         // Snapshot processing configuration now so a settings edit can't change
-        // this transcript halfway through the pipeline.
-        let settings = processingSettings()
-        let previous = insertionChain
-        insertionChain = Task { [weak self, pipeline] in
-            // FIFO: utterance N inserts only after N-1 fully completed, even if N's
-            // transcription finished first (IR-001).
-            await previous?.value
-            let result: Result<TranscriptResult, Error>
+        // this transcript halfway through the pipeline. The language is the one
+        // this utterance was recorded in, not whatever Settings says by now.
+        // Model cleanup is English-only (under English instructions the model
+        // translates), so other languages take the deterministic path.
+        var settings = processingSettings()
+        settings.cleanupMode = settings.cleanupMode.effective(forLocaleIdentifier: localeIdentifier)
+        chainInsertion(after: { [pipeline] () -> Result<TranscriptResult, Error> in
             do {
                 let raw = try await task.value
-                result = .success(await pipeline.process(raw, settings: settings))
+                return .success(await pipeline.process(raw, settings: settings))
             } catch {
-                result = .failure(error)
+                return .failure(error)
             }
-            self?.completeUtterance(gen: gen, epoch: epoch, target: target, result: result)
+        }) { controller, result in
+            controller.completeUtterance(
+                gen: gen, epoch: epoch, target: target, localeIdentifier: localeIdentifier, result: result)
         }
     }
 
-    private func completeUtterance(gen: Int, epoch: Int, target: pid_t?, result: Result<TranscriptResult, Error>) {
+    /// How a completion reports its outcome. A newer recording owns the icon,
+    /// indicator, and sounds; a superseded completion still inserts (in order)
+    /// but stays silent and invisible (IR-001). Ownership is decided here, when
+    /// the completion starts, not when it gets round to reporting.
+    private func uiUpdater(for gen: Int) -> (AppState, String?) -> Void {
+        let isCurrent = gen == uiOwner
+        if finalizingBeforeCommand == gen { finalizingBeforeCommand = nil } // it has completed
+        return { [self] uiState, sound in
+            guard isCurrent else { return }
+            indicator.hide()
+            if let sound { playSound(sound) }
+            rest(in: .idle, icon: uiState)
+        }
+    }
+
+    private func completeUtterance(
+        gen: Int, epoch: Int, target: pid_t?, localeIdentifier: String, result: Result<TranscriptResult, Error>
+    ) {
         guard epoch == pauseEpoch else {
             // Paused (or paused-and-resumed) after this utterance was captured: never
             // insert (IR-004). A transcript that completed anyway is preserved on the
@@ -450,27 +587,21 @@ final class DictationController {
             if case .success(let transcript) = result, !transcript.final.isEmpty {
                 volatileStore.record(raw: transcript.raw, final: transcript.final, cleanupApplied: transcript.cleanupApplied)
                 inserter.preserveOnClipboard(transcript.final)
+                // The user may paste it by hand, after which the cursor no longer
+                // sits behind the older insertion a "scratch that" would delete.
+                lastInsertion = nil
                 NSLog("Internos: canceled by pause — transcript preserved on clipboard, not inserted")
             }
             return
         }
-        // A newer recording owns the icon, indicator, and sounds; a superseded
-        // completion still inserts (in order) but stays silent and invisible (IR-001).
-        let isCurrent = gen == utteranceGeneration
-        let updateUI: (AppState, String?) -> Void = { [self] uiState, sound in
-            guard isCurrent else { return }
-            indicator.hide()
-            statusItem.setState(uiState)
-            state = .idle
-            if let sound { playSound(sound) }
-        }
+        let updateUI = uiUpdater(for: gen)
 
         switch result {
         case .success(let transcript) where transcript.final.isEmpty:
             NSLog("Internos: empty transcript")
             updateUI(.error, "Basso")
         case .success(let transcript)
-            where Self.isScratchCommand(transcript.raw, localeIdentifier: AppSettings.shared.recognitionLocale):
+            where Self.isScratchCommand(transcript.raw, localeIdentifier: localeIdentifier):
             // "scratch that" (v2): delete the previous insertion instead of inserting.
             performScratch(updateUI: updateUI)
         case .success(let transcript):
@@ -499,29 +630,33 @@ final class DictationController {
 
     /// Command key pressed: capture the current selection (explicit invocation only),
     /// then record the spoken instruction while the key is held.
+    ///
+    /// When command mode can't start, the reason is held until the key comes back
+    /// up: the hold may still turn into an ordinary shortcut (⌘-click after a
+    /// pause), and that must stay silent. A clean release fails loud.
     func commandKeyDown() {
-        guard state == .idle || state == .finalizing, let format = analyzerFormat else { return }
+        pendingCommandFailure = nil
+        guard state == .idle || state == .finalizing, let (format, locale) = analyzer else { return }
         guard commandModeAvailable() else {
             NSLog("Internos: command mode unavailable (Apple Intelligence)")
-            indicator.showMessage("Command mode needs Apple Intelligence,\nwhich isn't available on this Mac.")
-            statusItem.setState(.error)
-            playSound("Basso")
+            pendingCommandFailure = "Command mode needs Apple Intelligence,\nwhich isn't available on this Mac."
             return
         }
         guard let selection = selectionProvider() else {
             NSLog("Internos: command mode — no selected text in the focused element")
-            indicator.showMessage("Select some text first, then hold the\ncommand key and speak an instruction.")
-            statusItem.setState(.error)
-            playSound("Basso")
+            pendingCommandFailure = "Select some text first, then hold the\ncommand key and speak an instruction."
             return
         }
         do {
             let stream = try recorder.start(analyzerFormat: format, deviceUID: AppSettings.shared.inputDeviceUID)
+            finalizingBeforeCommand = state == .finalizing ? uiOwner : nil
             utteranceGeneration += 1
+            uiOwner = utteranceGeneration
             commandContext = (selection.text, selection.pid)
-            utteranceTask = Task { [engine] in
-                try await engine.transcribe(input: stream, format: format, onPartial: nil)
-            }
+            commandRecordingStarted = .now
+            utterance = (Task { [engine] in
+                try await engine.transcribe(input: stream, format: format, locale: locale, onPartial: nil)
+            }, locale.identifier)
             state = .commandRecording
             statusItem.setState(.recording)
             indicator.show(.recording)
@@ -536,9 +671,54 @@ final class DictationController {
         }
     }
 
+    /// A key or click arrived during the command-key hold: drop the recording
+    /// without transforming anything. Right after the start that is an ordinary
+    /// shortcut and gets no error feedback; later it interrupted an instruction,
+    /// and the user is told why nothing happened.
+    func commandKeyCancel() {
+        pendingCommandFailure = nil
+        guard state == .commandRecording, utterance != nil else { return }
+        abandonRecording()
+        NSLog("Internos: command mode canceled (shortcut)")
+        let interruptedInstruction = commandRecordingStarted.map { .now - $0 >= quietCancelWindow } ?? false
+        if interruptedInstruction { playSound("Basso") }
+        if let interrupted = finalizingBeforeCommand {
+            // The dictation this hold cut in on is still in the chain: hand the
+            // indicator and the icon back, so its outcome is seen and heard. A
+            // notice here would be wiped by its next partial; the sound stands in.
+            uiOwner = interrupted
+            state = .finalizing
+            statusItem.setState(.transcribing)
+            indicator.show(.transcribing)
+            return
+        }
+        if interruptedInstruction {
+            indicator.showMessage("Command canceled by a key press or click.\nHold the command key alone while speaking.")
+        } else {
+            indicator.hide()
+        }
+        rest(in: .idle, icon: interruptedInstruction ? .error : .idle)
+    }
+
     func commandKeyUp() {
-        guard state == .commandRecording, let task = utteranceTask, let context = commandContext else { return }
-        utteranceTask = nil
+        if let message = pendingCommandFailure {
+            pendingCommandFailure = nil
+            switch state {
+            case .idle:
+                indicator.showMessage(message)
+                statusItem.setState(.error)
+                playSound("Basso")
+            case .finalizing:
+                // The icon and indicator belong to the dictation still finalizing,
+                // and its completion would wipe a notice at once: the sound alone.
+                playSound("Basso")
+            default:
+                break
+            }
+            return
+        }
+        guard state == .commandRecording, let task = utterance?.task, let context = commandContext else { return }
+        utterance = nil
         commandContext = nil
         recorder.stop()
         state = .finalizing
@@ -547,19 +727,16 @@ final class DictationController {
 
         let gen = utteranceGeneration
         let epoch = pauseEpoch
-        let previous = insertionChain
-        insertionChain = Task { [weak self, transformer] in
-            await previous?.value
-            var transformed: String?
-            var instructionHeard = false
-            if let instruction = try? await task.value,
-               !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                instructionHeard = true
-                transformed = await transformer.transform(context.selection, instruction: instruction)
+        chainInsertion(after: { [transformer] () -> (transformed: String?, instructionHeard: Bool) in
+            guard let instruction = try? await task.value,
+                  !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return (nil, false)
             }
-            self?.completeCommand(
+            return (await transformer.transform(context.selection, instruction: instruction), true)
+        }) { controller, outcome in
+            controller.completeCommand(
                 gen: gen, epoch: epoch, context: context,
-                transformed: transformed, instructionHeard: instructionHeard)
+                transformed: outcome.transformed, instructionHeard: outcome.instructionHeard)
         }
     }
 
@@ -568,14 +745,7 @@ final class DictationController {
         transformed: String?, instructionHeard: Bool
     ) {
         guard epoch == pauseEpoch else { return } // paused: change nothing (IR-004 semantics)
-        let isCurrent = gen == utteranceGeneration
-        let updateUI: (AppState, String?) -> Void = { [self] uiState, sound in
-            guard isCurrent else { return }
-            indicator.hide()
-            statusItem.setState(uiState)
-            state = .idle
-            if let sound { playSound(sound) }
-        }
+        let updateUI = uiUpdater(for: gen)
 
         guard instructionHeard, let transformed else {
             // Unavailable model, timeout, refusal, empty instruction: the selection is
@@ -656,6 +826,9 @@ final class DictationController {
     /// Insertion failures preserve the transcript rather than lose it: it stays on the
     /// clipboard for the user to paste manually. Logs name the cause, never the content.
     private func handleInsertionFailure(_ error: Error, transcript: String) {
+        // The user may paste the preserved transcript by hand, after which the
+        // cursor no longer sits behind the older insertion "scratch that" would delete.
+        lastInsertion = nil
         switch error {
         case InternosError.secureInputActive:
             inserter.preserveOnClipboard(transcript)

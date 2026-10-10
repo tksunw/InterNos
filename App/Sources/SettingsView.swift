@@ -67,7 +67,7 @@ private struct GeneralSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 } else {
-                    Text("Hold the command key with text selected, speak an instruction (\u{201C}fix the spelling\u{201D}, \u{201C}make this friendlier\u{201D}), release. The selection is rewritten on-device.")
+                    Text("With text selected, hold the command key on its own, wait for the start sound, speak an instruction (\u{201C}fix the spelling\u{201D}, \u{201C}make this friendlier\u{201D}), release. The selection is rewritten on-device.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -145,7 +145,9 @@ private struct GeneralSettingsView: View {
 // MARK: - Processing
 
 private struct ProcessingSettingsView: View {
-    @State private var cleanupMode = AppSettings.shared.cleanupMode
+    // Bound to the stored value, not a copy: the Shortcuts action changes it
+    // behind this (cached) window, with no appear or activation event to hook.
+    @AppStorage(cleanupModeKey) private var cleanupMode = cleanupModeDefault
     @State private var unavailableReason = CleanupAvailability.explanation
 
     private var modelAvailable: Bool { unavailableReason == nil }
@@ -183,7 +185,6 @@ private struct ProcessingSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: cleanupMode) { AppSettings.shared.cleanupMode = cleanupMode }
         .onAppear { refreshAvailability() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshAvailability()
@@ -197,7 +198,6 @@ private struct ProcessingSettingsView: View {
         // whole feature to Off made filler removal hostage to Apple Intelligence.
         if unavailableReason != nil, cleanupMode == .polished {
             cleanupMode = .light
-            AppSettings.shared.cleanupMode = .light
         }
     }
 
@@ -455,7 +455,7 @@ private struct ReplacementEditor: View {
                 .accessibilityLabel("Trigger phrase")
             TextField("Internos types…", text: $replacement.replacement)
                 .accessibilityLabel("Replacement output")
-            Text("Matching is case-insensitive and whole-word. The output is typed exactly as written here.")
+            Text("Matching is case-insensitive and whole-word. A trigger typed with punctuation (\u{201C}Dr. Smith\u{201D}) expects it in the dictated text; one ending in a period (\u{201C}no.\u{201D}) also matches that word at the end of a sentence. The output is typed exactly as written here. Output that starts with punctuation attaches to the word before it (\u{201C}, Inc.\u{201D}); start it with a space to keep them apart (\u{201C} .NET\u{201D}).")
                 .font(.caption).foregroundStyle(.secondary)
             if let validationError {
                 Text(validationError).font(.caption).foregroundStyle(.red)

@@ -261,4 +261,21 @@ final class DictationControllerTests: XCTestCase {
         XCTAssertEqual(recorder.startCount, 0)
         XCTAssertEqual(controller.state, .settingUp)
     }
+
+    // MARK: chained insertions wait for the previous paste
+
+    func testEachInsertionSettlesThePreviousPasteFirst() async {
+        let controller = await makeReadyController()
+        controller.beginUtterance()
+        controller.endUtterance()
+        controller.beginUtterance()
+        controller.endUtterance()
+        await waitUntil { self.engine.pendingCount == 2 }
+        engine.complete(1, with: .success("one"))
+        engine.complete(2, with: .success("two"))
+        await waitUntil { self.inserter.insertions.count == 2 }
+
+        XCTAssertEqual(inserter.insertionCountAtSettle, [0, 1],
+                       "settle runs before every insertion, after the one ahead of it")
+    }
 }

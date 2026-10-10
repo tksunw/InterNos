@@ -71,7 +71,7 @@ Cleanup is bounded (a deadline that scales with the length of the utterance, 500
 
 ## Command mode (v2)
 
-Select text anywhere, hold the **command key** (default Right Command, configurable), speak an instruction — "fix the spelling", "make this friendlier", "turn this into bullet points" — and release. The selection is rewritten in place by Apple Intelligence's on-device model. Nothing leaves the Mac; the selection is read only at the moment you press the command key, never in the background. Any failure (no Apple Intelligence, timeout, model refusal) changes nothing — your selection stays exactly as it was. The original text is recoverable from **Copy Last Raw Dictation** after a rewrite.
+Select text anywhere, hold the **command key** on its own (default Right Command, configurable), wait for the start sound, speak an instruction — "fix the spelling", "make this friendlier", "turn this into bullet points" — and release. The selection is rewritten in place by Apple Intelligence's on-device model. Nothing leaves the Mac; the selection is read only when you hold the command key to give a command (about a fifth of a second in, once it is clear the key isn't part of an ordinary shortcut), never in the background. Any failure (no Apple Intelligence, timeout, model refusal) changes nothing — your selection stays exactly as it was. The original text is recoverable from **Copy Last Raw Dictation** after a rewrite.
 
 ## Live preview, scratch that, and languages (v2)
 

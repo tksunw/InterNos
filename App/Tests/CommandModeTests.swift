@@ -23,15 +23,19 @@ final class CommandModeTests: XCTestCase {
     private var engine = FakeEngine()
     private var inserter = FakeInserter()
     private var status = FakeStatus()
+    private var indicator = FakeIndicator()
+    private var sounds: [String] = []
     private var transformer = FakeTransformer()
     private var selection: (text: String, pid: pid_t)? = ("helo wrld", 42)
     private var available = true
 
-    private func makeReadyController() async -> DictationController {
+    private func makeReadyController(quietCancelWindow: Duration = .seconds(60)) async -> DictationController {
         recorder = FakeRecorder()
         engine = FakeEngine()
         inserter = FakeInserter()
         status = FakeStatus()
+        indicator = FakeIndicator()
+        sounds = []
         transformer = FakeTransformer()
         selection = ("helo wrld", 42)
         available = true
@@ -41,14 +45,15 @@ final class CommandModeTests: XCTestCase {
             engine: engine,
             inserter: inserter,
             statusItem: status,
-            indicator: FakeIndicator(),
+            indicator: indicator,
             processingSettings: { ProcessingSettings() },
-            playSound: { _ in },
+            playSound: { [self] in sounds.append($0) },
             frontmostPID: { 42 },
             onboardingPresenter: { _, _ in },
             transformer: transformer,
             selectionProvider: { [self] in selection },
-            commandModeAvailable: { [self] in available }
+            commandModeAvailable: { [self] in available },
+            quietCancelWindow: quietCancelWindow
         )
         await controller.initializePipeline()
         return controller
@@ -76,24 +81,48 @@ final class CommandModeTests: XCTestCase {
         XCTAssertEqual(controller.volatileStore.current?.final, "hello world")
     }
 
-    func testNoSelectionFailsLoudWithoutRecording() async {
+    /// The failure is reported when the key comes back up: until then the hold
+    /// may still turn out to be an ordinary shortcut.
+    func testNoSelectionFailsLoudOnReleaseWithoutRecording() async {
         let controller = await makeReadyController()
         selection = nil
 
         controller.commandKeyDown()
         XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(recorder.startCount, 0, "no selection → no capture")
+        XCTAssertNotEqual(status.states.last, .error, "silent while the key is still down")
+
+        controller.commandKeyUp()
         XCTAssertEqual(status.states.last, .error)
+        XCTAssertEqual(indicator.messages.count, 1)
     }
 
-    func testUnavailableModelFailsLoudWithoutRecording() async {
+    func testUnavailableModelFailsLoudOnReleaseWithoutRecording() async {
         let controller = await makeReadyController()
         available = false
 
         controller.commandKeyDown()
-        XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(recorder.startCount, 0)
+        XCTAssertNotEqual(status.states.last, .error)
+
+        controller.commandKeyUp()
+        XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(status.states.last, .error)
+        XCTAssertEqual(indicator.messages.count, 1)
+    }
+
+    /// ⌘-click after a pause, with nothing selected: the hold is canceled, and a
+    /// shortcut is never an error.
+    func testShortcutWithoutSelectionStaysSilent() async {
+        let controller = await makeReadyController()
+        selection = nil
+
+        controller.commandKeyDown()
+        controller.commandKeyCancel()
+        controller.commandKeyUp()
+
+        XCTAssertNotEqual(status.states.last, .error)
+        XCTAssertTrue(indicator.messages.isEmpty)
     }
 
     func testTransformFailureChangesNothing() async {
@@ -196,5 +225,169 @@ final class CommandModeTests: XCTestCase {
         let result = await coordinator.transform("text", instruction: "do it")
         XCTAssertNil(result)
         gate.open()
+    }
+
+    /// The command-key hold turned out to be a shortcut: stop recording, transform
+    /// nothing, and stay quiet about it.
+    func testCancelAbandonsCommandRecordingSilently() async {
+        let controller = await makeReadyController()
+        transformer.result = "SHOULD NOT BE USED"
+
+        controller.commandKeyDown()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.commandKeyCancel()
+
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertEqual(recorder.stopCount, 1)
+        XCTAssertEqual(status.states.last, .idle, "a shortcut is not an error")
+
+        controller.commandKeyUp() // the release that follows is a no-op
+        engine.complete(1, with: .success("fix the spelling"))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(transformer.calls.isEmpty)
+        XCTAssertTrue(inserter.insertions.isEmpty)
+        XCTAssertNil(controller.volatileStore.current)
+
+        // Dictation works straight after.
+        controller.beginUtterance()
+        XCTAssertEqual(controller.state, .recording)
+    }
+
+    /// Command mode cut in on a dictation that was still finalizing, then turned
+    /// out to be a shortcut. The dictation gets its indicator and its outcome back.
+    func testCancelHandsTheUIBackToAnInterruptedDictation() async {
+        let controller = await makeReadyController()
+
+        controller.beginUtterance()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.endUtterance()
+        XCTAssertEqual(controller.state, .finalizing)
+
+        controller.commandKeyDown()
+        XCTAssertEqual(controller.state, .commandRecording)
+        controller.commandKeyCancel()
+        XCTAssertEqual(controller.state, .finalizing, "the dictation is still in the chain")
+        XCTAssertEqual(status.states.last, .transcribing)
+
+        inserter.errorToThrow = InternosError.secureInputActive
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { controller.state == .idle }
+        XCTAssertEqual(status.states.last, .error, "its failure is visible, not swallowed as superseded")
+    }
+
+    /// Same, but the dictation finished while the command was recording.
+    func testCancelAfterInterruptedDictationFinishedGoesIdle() async {
+        let controller = await makeReadyController()
+
+        controller.beginUtterance()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.endUtterance()
+        controller.commandKeyDown()
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { self.inserter.insertions.count == 1 }
+
+        controller.commandKeyCancel()
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertEqual(status.states.last, .idle)
+    }
+
+    /// Two shortcuts in a row while one dictation finalizes: the second canceled
+    /// hold must hand the UI back to the dictation, not to the first canceled hold.
+    func testSecondCanceledHoldStillRestoresTheDictation() async {
+        let controller = await makeReadyController()
+
+        controller.beginUtterance()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.endUtterance()
+
+        controller.commandKeyDown()
+        controller.commandKeyCancel()
+        controller.commandKeyDown()
+        controller.commandKeyCancel()
+        XCTAssertEqual(controller.state, .finalizing)
+
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { controller.state == .idle }
+        XCTAssertEqual(controller.state, .idle, "the dictation's completion owns the UI and ends the finalizing state")
+        XCTAssertEqual(inserter.insertions.map(\.text), ["hello"])
+        XCTAssertEqual(status.states.last, .idle)
+    }
+
+    /// A dictation started and finished while the command key was still down
+    /// (no selection, so no command recording). Releasing the command key must
+    /// not put the stale "select some text" error over the healthy dictation.
+    func testDictationDuringAFailedHoldRetiresItsError() async {
+        let controller = await makeReadyController()
+        selection = nil
+
+        controller.commandKeyDown()
+        controller.beginUtterance()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.endUtterance()
+        controller.commandKeyUp()
+
+        XCTAssertTrue(indicator.messages.isEmpty)
+        XCTAssertNotEqual(status.states.last, .error)
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { controller.state == .idle }
+        XCTAssertEqual(status.states.last, .idle)
+    }
+
+    /// Past the quiet window the user was mid-instruction: a stray key or click
+    /// that ends the recording has to say so.
+    func testLateCancelFailsLoud() async {
+        let controller = await makeReadyController(quietCancelWindow: .zero)
+
+        controller.commandKeyDown()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.commandKeyCancel()
+
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertEqual(recorder.stopCount, 1)
+        XCTAssertEqual(status.states.last, .error)
+        XCTAssertEqual(indicator.messages.count, 1)
+        XCTAssertTrue(inserter.insertions.isEmpty)
+    }
+
+    /// A failed command hold released while a dictation is finalizing: the icon
+    /// and indicator stay with the dictation; the failure is the error sound.
+    func testFailedHoldDuringFinalizationLeavesTheIndicatorAlone() async {
+        let controller = await makeReadyController()
+        controller.beginUtterance()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.endUtterance()
+
+        selection = nil
+        controller.commandKeyDown()
+        controller.commandKeyUp()
+
+        XCTAssertTrue(indicator.messages.isEmpty)
+        XCTAssertEqual(status.states.last, .transcribing)
+        XCTAssertEqual(sounds.last, "Basso")
+
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { controller.state == .idle }
+    }
+
+    /// A late cancel that cut in on a finalizing dictation hands the UI back
+    /// and still says the command was dropped: by sound, since the dictation's
+    /// indicator would wipe a notice at once.
+    func testLateCancelOverAFinalizingDictationStillSaysSo() async {
+        let controller = await makeReadyController(quietCancelWindow: .zero)
+        controller.beginUtterance()
+        await waitUntil { self.engine.pendingCount == 1 }
+        controller.endUtterance()
+
+        controller.commandKeyDown()
+        controller.commandKeyCancel()
+
+        XCTAssertEqual(controller.state, .finalizing)
+        XCTAssertTrue(indicator.messages.isEmpty)
+        XCTAssertEqual(indicator.shown.last, .transcribing)
+        XCTAssertEqual(sounds.last, "Basso")
+
+        engine.complete(1, with: .success("hello"))
+        await waitUntil { controller.state == .idle }
+        XCTAssertEqual(inserter.insertions.map(\.text), ["hello"])
     }
 }

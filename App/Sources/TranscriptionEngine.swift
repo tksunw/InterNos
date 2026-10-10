@@ -8,52 +8,46 @@ import Speech
 
 /// Controller-facing seam so lifecycle tests can substitute a deterministic transcriber.
 protocol TranscriptionProviding: Sendable {
-    func modelStatus() async -> AssetInventory.Status
-    func ensureModel() async throws
-    func analyzerFormat() async throws -> AVAudioFormat
+    // Every step takes the language it is for. The caller pins one language per
+    // setup and per utterance: a pick in Settings while either is under way must
+    // not reach a step whose model or audio format belong to the earlier one.
+    func modelStatus(locale: Locale) async -> AssetInventory.Status
+    func ensureModel(locale: Locale) async throws
+    func analyzerFormat(locale: Locale) async throws -> AVAudioFormat
     /// `onPartial` receives the accumulated transcript (finalized prefix + current
     /// volatile tail) as recognition progresses — drives the live preview (v2).
     func transcribe(
         input: AsyncStream<AnalyzerInput>,
         format: AVAudioFormat,
+        locale: Locale,
         onPartial: (@Sendable (String) -> Void)?
     ) async throws -> String
 }
 
-extension TranscriptionProviding {
-    func transcribe(input: AsyncStream<AnalyzerInput>, format: AVAudioFormat) async throws -> String {
-        try await transcribe(input: input, format: format, onPartial: nil)
-    }
-}
-
 final class TranscriptionEngine: TranscriptionProviding, Sendable {
-    /// Read per call so a Settings change applies to the next utterance without a
-    /// new engine (v2 multi-language). Defaults to the persisted app setting.
-    private let localeProvider: @Sendable () -> Locale
-
-    init(localeProvider: (@Sendable () -> Locale)? = nil) {
-        self.localeProvider = localeProvider ?? {
-            Locale(identifier: UserDefaults.standard.string(forKey: recognitionLocaleKey) ?? "en_US")
-        }
+    /// The language selected in Settings, for callers outside a pinned setup or
+    /// utterance (the setup window's model download).
+    static var selectedLocale: Locale {
+        Locale(identifier: UserDefaults.standard.string(forKey: recognitionLocaleKey) ?? recognitionLocaleDefault)
     }
 
     /// Volatile results feed the live preview; finalized results build the transcript.
-    func makeTranscriber() -> SpeechTranscriber {
+    func makeTranscriber(locale: Locale = TranscriptionEngine.selectedLocale) -> SpeechTranscriber {
         SpeechTranscriber(
-            locale: localeProvider(),
+            locale: locale,
             transcriptionOptions: [],
             reportingOptions: [.volatileResults],
             attributeOptions: []
         )
     }
 
-    func modelStatus() async -> AssetInventory.Status {
-        await AssetInventory.status(forModules: [makeTranscriber()])
+    func modelStatus(locale: Locale) async -> AssetInventory.Status {
+        await AssetInventory.status(forModules: [makeTranscriber(locale: locale)])
     }
 
-    /// Ensure the en-US model asset is installed (downloads on first run).
-    func ensureModel() async throws {
-        let transcriber = makeTranscriber()
+    /// Ensure the model asset for `locale` is installed (downloads on first run).
+    func ensureModel(locale: Locale) async throws {
+        let transcriber = makeTranscriber(locale: locale)
         let status = await AssetInventory.status(forModules: [transcriber])
         switch status {
         case .installed:
@@ -64,7 +58,7 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
             }
             // A nil request or a returned downloadAndInstall() is not proof of
             // installation (IR-006): only a verified .installed status counts.
-            guard await AssetInventory.status(forModules: [makeTranscriber()]) == .installed else {
+            guard await AssetInventory.status(forModules: [makeTranscriber(locale: locale)]) == .installed else {
                 throw InternosError.modelNotInstalled
             }
         case .unsupported:
@@ -74,8 +68,8 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
         }
     }
 
-    func analyzerFormat() async throws -> AVAudioFormat {
-        let transcriber = makeTranscriber()
+    func analyzerFormat(locale: Locale) async throws -> AVAudioFormat {
+        let transcriber = makeTranscriber(locale: locale)
         guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
             throw InternosError.analyzerFormatUnavailable
         }
@@ -88,9 +82,10 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
     func transcribe(
         input: AsyncStream<AnalyzerInput>,
         format: AVAudioFormat,
+        locale: Locale,
         onPartial: (@Sendable (String) -> Void)?
     ) async throws -> String {
-        let transcriber = makeTranscriber()
+        let transcriber = makeTranscriber(locale: locale)
         let analyzer = SpeechAnalyzer(
             modules: [transcriber],
             options: .init(priority: .userInitiated, modelRetention: .processLifetime)

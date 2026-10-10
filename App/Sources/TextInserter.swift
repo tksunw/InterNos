@@ -35,6 +35,19 @@ protocol TextInserting: AnyObject {
     /// transcript must never be silently lost). Cancels any pending restore that
     /// would otherwise clobber it.
     func preserveOnClipboard(_ text: String)
+
+    /// Called with the number of key presses about to be posted (one for a
+    /// clipboard paste, one per backspace), so whoever watches keyboard activity
+    /// can tell them from the user's. Before, not after: the watcher needs its
+    /// own reading from before the first of them lands. Called again with the
+    /// negated count if posting then fails.
+    var willPostKeyPresses: ((Int) -> Void)? { get set }
+
+    /// Returns once the target app has had time to consume the synthetic key
+    /// events of the previous insertion or deletion. Awaited between chained
+    /// operations: a ⌘V or a run of backspaces is only queued when the call
+    /// returns, and the next one rewrites the pasteboard or inserts directly.
+    func settlePendingEvents() async
 }
 
 /// The few NSPasteboard operations the inserter needs, as a seam for tests.
@@ -93,10 +106,21 @@ final class TextInserter: TextInserting {
         let work: DispatchWorkItem
     }
 
+    /// How long a synthetic ⌘V is given to be consumed, for the clipboard restore
+    /// and for the next chained insertion alike. 300 ms is a compromise: long enough
+    /// for slow apps to read the pasteboard, short enough not to surprise.
+    nonisolated static let pasteWindowMilliseconds = 300
+
+    var willPostKeyPresses: ((Int) -> Void)?
+
     private var pendingRestore: PendingRestore?
     private var restoreID = 0
+    /// When the app is assumed to have handled the last synthetic key events.
+    private var eventsSettleAt: ContinuousClock.Instant?
 
     private let pasteboard: any PasteboardProviding
+    private let pasteSettleTime: Duration
+    private let sleep: (Duration) async -> Void
     private let scheduleRestore: (DispatchWorkItem) -> Void
     private let secureInputActive: () -> Bool
     private let accessibilityGranted: () -> Bool
@@ -108,10 +132,13 @@ final class TextInserter: TextInserting {
 
     init(
         pasteboard: any PasteboardProviding = NSPasteboard.general,
-        // Restore the previous clipboard after the paste lands. 300 ms is a compromise:
-        // long enough for slow apps to read the pasteboard, short enough not to surprise.
+        // How long the next chained insertion waits for this paste to land.
+        pasteSettleTime: Duration = .milliseconds(TextInserter.pasteWindowMilliseconds),
+        sleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        // Restore the previous clipboard after the paste lands.
         scheduleRestore: @escaping (DispatchWorkItem) -> Void = {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: $0)
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + .milliseconds(TextInserter.pasteWindowMilliseconds), execute: $0)
         },
         secureInputActive: @escaping () -> Bool = { IsSecureEventInputEnabled() },
         accessibilityGranted: @escaping () -> Bool = { TextInserter.checkAccessibility(promptIfNeeded: false) },
@@ -122,6 +149,8 @@ final class TextInserter: TextInserting {
         postBackspaces: @escaping (Int) throws -> Void = { try TextInserter.postBackspaces($0) }
     ) {
         self.pasteboard = pasteboard
+        self.pasteSettleTime = pasteSettleTime
+        self.sleep = sleep
         self.scheduleRestore = scheduleRestore
         self.secureInputActive = secureInputActive
         self.accessibilityGranted = accessibilityGranted
@@ -174,7 +203,8 @@ final class TextInserter: TextInserting {
 
         // Throws when a CGEvent can't be constructed (IR-009). The transcript stays on
         // the pasteboard and no restore is scheduled over it, so nothing is lost.
-        try postPaste()
+        try posting(1) { try postPaste() }
+        eventsSettleAt = .now + pasteSettleTime
 
         restoreID += 1
         let id = restoreID
@@ -193,7 +223,31 @@ final class TextInserter: TextInserting {
         guard let target, let current = frontmostPID(), current == target else {
             throw InternosError.insertionTargetChanged
         }
-        try postBackspaces(characterCount)
+        try posting(characterCount) { try postBackspaces(characterCount) }
+        // ponytail: 1 ms per backspace on top of the paste window is a guess at how
+        // fast an app drains key events; raise it if a scratch eats the next insertion.
+        eventsSettleAt = .now + pasteSettleTime + .milliseconds(characterCount)
+    }
+
+    /// Synthetic key events are only queued when `insert` or `deleteBackward`
+    /// returns; the app handles them when it gets around to it. An insertion
+    /// chained straight behind (two utterances finalizing back to back) would
+    /// otherwise swap the pasteboard under the first paste, which then pastes the
+    /// second transcript, or land ahead of backspaces that then eat into it.
+    func settlePendingEvents() async {
+        guard let until = eventsSettleAt else { return }
+        let remaining = until - .now
+        if remaining > .zero { await sleep(remaining) }
+    }
+
+    private func posting(_ keyPresses: Int, _ post: () throws -> Void) throws {
+        willPostKeyPresses?(keyPresses)
+        do {
+            try post()
+        } catch {
+            willPostKeyPresses?(-keyPresses)
+            throw error
+        }
     }
 
     func preserveOnClipboard(_ text: String) {
@@ -240,29 +294,37 @@ final class TextInserter: TextInserting {
         pasteboard.writeItems(items)
     }
 
-    static func postCommandV() throws {
-        let vKey = CGKeyCode(kVK_ANSI_V)
-        let source = CGEventSource(stateID: .combinedSessionState)
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else {
+    /// A key press with exactly `flags` as its modifiers. The flags are always set
+    /// explicitly: an event built from the session state otherwise inherits whatever
+    /// the user is physically holding (the dictation key, re-pressed for the next
+    /// utterance), which turns Delete into Option-Delete or ⌘-Delete.
+    static func keyPress(
+        _ key: CGKeyCode, flags: CGEventFlags, source: CGEventSource?
+    ) throws -> (down: CGEvent, up: CGEvent) {
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) else {
             throw InternosError.pasteEventFailed
         }
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        keyDown.flags = flags
+        keyUp.flags = flags
+        return (keyDown, keyUp)
     }
 
-    static func postBackspaces(_ count: Int) throws {
-        let deleteKey = CGKeyCode(kVK_Delete)
+    static func postCommandV() throws {
         let source = CGEventSource(stateID: .combinedSessionState)
-        for _ in 0..<count {
-            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: false) else {
-                throw InternosError.pasteEventFailed
-            }
-            keyDown.post(tap: .cghidEventTap)
-            keyUp.post(tap: .cghidEventTap)
+        let press = try keyPress(CGKeyCode(kVK_ANSI_V), flags: .maskCommand, source: source)
+        press.down.post(tap: .cghidEventTap)
+        press.up.post(tap: .cghidEventTap)
+    }
+
+    /// All or nothing: every event is built before the first is posted, so a
+    /// construction failure never leaves half a deletion behind.
+    static func postBackspaces(_ count: Int) throws {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let presses = try (0..<count).map { _ in try keyPress(CGKeyCode(kVK_Delete), flags: [], source: source) }
+        for press in presses {
+            press.down.post(tap: .cghidEventTap)
+            press.up.post(tap: .cghidEventTap)
         }
     }
 

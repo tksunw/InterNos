@@ -4,6 +4,70 @@ All notable changes to Internos are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The command key now has to be held alone for a fifth of a second before
+  command mode starts recording, so wait for the start sound before speaking
+  the instruction. Ordinary shortcuts that use the same key (Right Command +
+  V, Shift + Command + anything, Command-click) no longer trigger the
+  "Select some text first" error or the Apple Intelligence notice, and a
+  quick one no longer starts a recording. A slow one (key held longer than
+  that before the second key or click) can still start one; it is cancelled
+  within a tenth of a second, without an error. A key or click more than a
+  second into an instruction also cancels it, with a notice saying why.
+  Scrolling is not treated as a shortcut. The two notices now appear when
+  the key is released rather than while it is held. Internos still
+  only watches modifier keys; it learns that something else was pressed
+  from a system counter, not what.
+
+### Fixed
+- Importing a customization export after renaming a snippet could leave two
+  snippets with the same internal ID, which crashed Internos on that import
+  and on every launch after it. IDs are now made unique on import and on
+  load, so an affected file opens again without hand-editing.
+- "Scratch that" deleted whole words (or to the start of the line) when the
+  dictation key was already held again for the next utterance. The
+  backspaces no longer pick up held modifier keys.
+- "Scratch that" after a failed insertion (Secure Input, app switched) no
+  longer deletes the length of an older insertion.
+- Light cleanup's filler removal no longer deletes the real words "ER",
+  "UH", "UM" (in capitals) or "err".
+- Changing the recognition language while paused no longer un-pauses
+  dictation behind a menu that still says "Resume". The change is applied on
+  resume; a change made mid-dictation is applied when that dictation ends,
+  and that dictation is transcribed and cleaned up as the language it was
+  spoken in.
+- Replacement triggers and snippet names containing punctuation now match:
+  "Dr. Smith", "vs.", "e.g.", "'til", "(c)" used to save without error and
+  never fire. The punctuation is part of the trigger, so "in." matches
+  "in." and not the word "in" on its own. A trigger that ends in a period
+  cannot be told from the same word ending a sentence ("Come in."), so it
+  matches there too; the editor says so. If you have such a rule that never
+  used to fire, check that you still want it. The period counts as the
+  trigger's own and goes with it, except at the end of a dictation or
+  before a line break, where the sentence keeps its full stop.
+- A replacement whose output starts with punctuation attaches to the
+  previous word (", Inc.", ".com"), as before. To keep it apart, start the
+  output with a space (" .NET"); the editor now says so, and the space is
+  dropped at the start of a line. Snippets are unchanged: inserted verbatim.
+- A trigger containing the word "a" no longer matches the run-together
+  word ("a part" matching "apart").
+- Two dictations finishing back to back into an app that takes the
+  clipboard path (Chromium, Electron) could paste the second transcript
+  twice and lose the first. The second insertion now waits for the first
+  paste to land.
+- A failed save of customizations (disk error, file from a newer version)
+  no longer leaves Settings showing entries that were never stored.
+- "Scratch that" followed straight away by another dictation could have its
+  backspaces eat into the new text; the next insertion now waits for them.
+- Picking a second recognition language while the first was still being set
+  up is no longer ignored, picking a working language recovers from a closed
+  download window or a failed setup, and pausing during a language change
+  stays paused.
+- Settings shows the current cleanup level when the Shortcuts action changes
+  it, instead of the level from when the window was first opened.
+
 ## [2.2.1] - 2026-09-21
 
 ### Changed

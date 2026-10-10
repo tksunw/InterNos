@@ -203,6 +203,12 @@ final class SmartCleanupPipelineTests: XCTestCase {
         XCTAssertEqual(FillerStripper.strip("the drummer plays the drum"), "the drummer plays the drum")
         // Words the stripper must NOT touch without semantics: "like", "you know".
         XCTAssertEqual(FillerStripper.strip("I like this, you know"), "I like this, you know")
+        // Real words that only look like hesitations once case and length are folded away.
+        XCTAssertEqual(FillerStripper.strip("She went to the ER. Then home."), "She went to the ER. Then home.")
+        XCTAssertEqual(FillerStripper.strip("Um, she went to the ER"), "she went to the ER")
+        XCTAssertEqual(FillerStripper.strip("To err is human"), "To err is human")
+        XCTAssertEqual(FillerStripper.strip("he studied at UH and UM"), "he studied at UH and UM")
+        XCTAssertEqual(FillerStripper.strip("Errr, Er, hello"), "hello")
     }
 
     func testFillersUntouchedWhenCleanupOff() async {

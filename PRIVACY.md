@@ -31,7 +31,7 @@ When an app doesn't support direct insertion, Internos falls back to a clipboard
 
 ## Command mode and selected text
 
-Command mode rewrites text you have selected, using the same on-device Apple Intelligence model as smart cleanup. Internos reads your selected text **only at the moment you press the command key** — an explicit, deliberate invocation — and sends it, with your spoken instruction, to the on-device model. It is never read in the background, never used as ambient context for dictation, never logged, and never transmitted. If the rewrite fails for any reason, your selection is left untouched.
+Command mode rewrites text you have selected, using the same on-device Apple Intelligence model as smart cleanup. Internos reads your selected text **only when you hold the command key to give a command** — an explicit, deliberate invocation — and sends it, with your spoken instruction, to the on-device model. It is never read in the background, never used as ambient context for dictation, never logged, and never transmitted. If the rewrite fails for any reason, your selection is left untouched.
 
 If a password field has focus (macOS Secure Input), Internos refuses to paste and instead leaves the transcript on the clipboard so it isn't lost. The same recovery applies when insertion is blocked for other reasons (for example, you switched apps before the paste landed, or Accessibility permission was revoked).
 
@@ -45,6 +45,8 @@ Two cases, neither in the dictation path, neither carrying any of your data (sma
 ## Permissions
 
 Internos asks for three macOS permissions, used solely for the functions named: Microphone (capturing your voice while dictating), Input Monitoring (detecting the hotkey), and Accessibility (inserting text at your cursor). None of these are used for anything else.
+
+The hotkey watch sees modifier keys only. To tell a command-key hold from an ordinary shortcut such as ⌘C, Internos also reads macOS's running count of key presses, mouse clicks and mouse drags. The count says that something was pressed, never which key or where; it is compared and discarded, not stored or logged.
 
 ## Changes
 

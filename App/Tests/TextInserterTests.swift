@@ -276,4 +276,79 @@ final class TextInserterTests: XCTestCase {
         XCTAssertEqual(pasteboard.stringContents, "preserved transcript",
                        "a pending restore must not wipe a preserved transcript")
     }
+
+    // MARK: paste settle (chained insertions)
+
+    private var slept: [Duration] = []
+
+    private func makeSettlingInserter(axSucceeds: Bool) -> TextInserter {
+        pasteboard = FakePasteboard()
+        scheduled = []
+        slept = []
+        return TextInserter(
+            pasteboard: pasteboard,
+            pasteSettleTime: .seconds(60),
+            sleep: { [self] in slept.append($0) },
+            scheduleRestore: { [self] work in scheduled.append(work) },
+            secureInputActive: { false },
+            accessibilityGranted: { true },
+            frontmostPID: { 42 },
+            axInsertionUnreliable: { _ in false },
+            axInsert: { _, _ in axSucceeds },
+            postPaste: {},
+            postBackspaces: { _ in }
+        )
+    }
+
+    func testSettleWaitsOutAClipboardPaste() async throws {
+        let inserter = makeSettlingInserter(axSucceeds: false)
+        await inserter.settlePendingEvents()
+        XCTAssertTrue(slept.isEmpty, "nothing pasted yet: no wait")
+
+        try inserter.insert("first", target: 42)
+        await inserter.settlePendingEvents()
+        XCTAssertEqual(slept.count, 1, "the app needs time to read the pasteboard before it changes again")
+        XCTAssertGreaterThan(slept[0], .seconds(59))
+        XCTAssertLessThanOrEqual(slept[0], .seconds(60))
+    }
+
+    func testSettleDoesNotWaitAfterAccessibilityInsertion() async throws {
+        let inserter = makeSettlingInserter(axSucceeds: true)
+        XCTAssertEqual(try inserter.insert("direct", target: 42), .accessibility)
+        await inserter.settlePendingEvents()
+        XCTAssertTrue(slept.isEmpty, "no paste event is in flight")
+    }
+
+    /// Backspaces are queued key events too: the next insertion waits for them,
+    /// longer the more there are.
+    func testSettleWaitsOutScratchBackspaces() async throws {
+        let inserter = makeSettlingInserter(axSucceeds: true)
+        try inserter.deleteBackward(2000, target: 42)
+        await inserter.settlePendingEvents()
+        XCTAssertEqual(slept.count, 1)
+        XCTAssertGreaterThan(slept[0], .seconds(61))
+    }
+
+    /// The inserter says how many key presses it is about to post, so they can
+    /// be told from the user's: one per paste, one per backspace, none for AX,
+    /// and a report is taken back if the posting fails.
+    func testReportsTheKeyPressesItPosts() throws {
+        var posted: [Int] = []
+        let pasting = makeInserter()
+        pasting.willPostKeyPresses = { posted.append($0) }
+        try pasting.insert("pasted", target: 42)
+        try pasting.deleteBackward(20, target: 42)
+        XCTAssertEqual(posted, [1, 20])
+
+        posted = []
+        let direct = makeInserter(axSucceeds: true)
+        direct.willPostKeyPresses = { posted.append($0) }
+        try direct.insert("direct", target: 42)
+        XCTAssertEqual(posted, [])
+
+        let failing = makeInserter(postPasteError: InternosError.pasteEventFailed)
+        failing.willPostKeyPresses = { posted.append($0) }
+        XCTAssertThrowsError(try failing.insert("never posted", target: 42))
+        XCTAssertEqual(posted, [1, -1])
+    }
 }

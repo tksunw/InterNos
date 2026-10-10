@@ -8,7 +8,12 @@
 
 import Foundation
 
-struct Replacement: Codable, Identifiable, Equatable, Sendable {
+/// An entry whose ID the store may reassign to keep IDs unique.
+protocol CustomizationEntry: Identifiable {
+    var id: UUID { get set }
+}
+
+struct Replacement: Codable, CustomizationEntry, Equatable, Sendable {
     var id: UUID = UUID()
     /// Spoken/transcribed phrase; whitespace-normalized on save, matched case-insensitively.
     var trigger: String
@@ -17,7 +22,7 @@ struct Replacement: Codable, Identifiable, Equatable, Sendable {
     var enabled: Bool = true
 }
 
-struct Snippet: Codable, Identifiable, Equatable, Sendable {
+struct Snippet: Codable, CustomizationEntry, Equatable, Sendable {
     static let maxContentBytes = 16 * 1024
     static let maxNameLength = 100
 
@@ -128,8 +133,9 @@ final class CustomizationStore: ObservableObject {
                 loadError = CustomizationError.unsupportedSchema(document.schemaVersion).errorDescription
                 return
             }
-            replacements = document.replacements
-            snippets = document.snippets
+            // In memory only: the file keeps its contents until the next save.
+            replacements = Self.withUniqueIDs(document.replacements)
+            snippets = Self.withUniqueIDs(document.snippets)
         } catch {
             // Preserve the damaged file; start empty in memory and surface the error.
             // The file is only rewritten when the user saves or imports valid data.
@@ -137,9 +143,14 @@ final class CustomizationStore: ObservableObject {
         }
     }
 
-    private func save() throws {
+    /// Writes the staged configuration and adopts it only once the write succeeded,
+    /// so a failed save (read-only schema, disk error) leaves the lists, the matcher,
+    /// and the file in agreement.
+    private func commit(replacements staged: [Replacement]? = nil, snippets stagedSnippets: [Snippet]? = nil) throws {
         guard !readOnly else { throw CustomizationError.readOnlyConfiguration }
-        let document = CustomizationDocument(replacements: replacements, snippets: snippets)
+        let newReplacements = staged ?? replacements
+        let newSnippets = stagedSnippets ?? snippets
+        let document = CustomizationDocument(replacements: newReplacements, snippets: newSnippets)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(document)
@@ -149,6 +160,8 @@ final class CustomizationStore: ObservableObject {
         try data.write(to: fileURL, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
 
+        replacements = newReplacements
+        snippets = newSnippets
         // A successful user save resolves a previously surfaced malformed-file error.
         loadError = nil
         rebuildMatchStructures()
@@ -176,6 +189,20 @@ final class CustomizationStore: ObservableObject {
         value.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
+    /// Entry IDs key the snippet table, the Settings lists, and update/delete, so
+    /// they must be unique. A hand-edited file can repeat one, and so can importing
+    /// an older export of an entry that still exists; the later entry gets a fresh ID.
+    private static func withUniqueIDs<Entry: CustomizationEntry>(_ entries: [Entry]) -> [Entry] {
+        var seen = Set<UUID>()
+        return entries.map { entry in
+            guard !seen.insert(entry.id).inserted else { return entry }
+            var renamed = entry
+            renamed.id = UUID()
+            seen.insert(renamed.id)
+            return renamed
+        }
+    }
+
     private static func foldedKey(_ value: String) -> String {
         normalizeTrigger(value).folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
     }
@@ -193,49 +220,49 @@ final class CustomizationStore: ObservableObject {
     // MARK: - replacement mutations
 
     func addReplacement(_ replacement: Replacement) throws {
-        replacements.append(try validated(replacement))
-        try save()
+        try commit(replacements: replacements + [try validated(replacement)])
     }
 
     func updateReplacement(_ replacement: Replacement) throws {
         guard let index = replacements.firstIndex(where: { $0.id == replacement.id }) else { return }
-        replacements[index] = try validated(replacement, excluding: replacement.id)
-        try save()
+        var staged = replacements
+        staged[index] = try validated(replacement, excluding: replacement.id)
+        try commit(replacements: staged)
     }
 
     func deleteReplacement(id: UUID) throws {
-        replacements.removeAll { $0.id == id }
-        try save()
+        try commit(replacements: replacements.filter { $0.id != id })
     }
 
     func setReplacementEnabled(id: UUID, enabled: Bool) throws {
         guard let index = replacements.firstIndex(where: { $0.id == id }) else { return }
-        replacements[index].enabled = enabled
-        try save()
+        var staged = replacements
+        staged[index].enabled = enabled
+        try commit(replacements: staged)
     }
 
     // MARK: - snippet mutations
 
     func addSnippet(_ snippet: Snippet) throws {
-        snippets.append(try validated(snippet))
-        try save()
+        try commit(snippets: snippets + [try validated(snippet)])
     }
 
     func updateSnippet(_ snippet: Snippet) throws {
         guard let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
-        snippets[index] = try validated(snippet, excluding: snippet.id)
-        try save()
+        var staged = snippets
+        staged[index] = try validated(snippet, excluding: snippet.id)
+        try commit(snippets: staged)
     }
 
     func deleteSnippet(id: UUID) throws {
-        snippets.removeAll { $0.id == id }
-        try save()
+        try commit(snippets: snippets.filter { $0.id != id })
     }
 
     func setSnippetEnabled(id: UUID, enabled: Bool) throws {
         guard let index = snippets.firstIndex(where: { $0.id == id }) else { return }
-        snippets[index].enabled = enabled
-        try save()
+        var staged = snippets
+        staged[index].enabled = enabled
+        try commit(snippets: staged)
     }
 
     // MARK: - import / export
@@ -307,9 +334,9 @@ final class CustomizationStore: ObservableObject {
             }
         }
 
-        replacements = stagedReplacements
-        snippets = stagedSnippets
-        try save()
+        try commit(
+            replacements: Self.withUniqueIDs(stagedReplacements),
+            snippets: Self.withUniqueIDs(stagedSnippets))
         return summary
     }
 

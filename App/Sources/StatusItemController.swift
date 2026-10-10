@@ -31,6 +31,8 @@ enum AppState {
     /// Only transient utterance errors revert on a timer; a setup failure must remain
     /// visible until a retry actually succeeds.
     var autoRevertsToIdle: Bool { self == .error }
+    /// How long the transient error icon stays up.
+    static let errorDisplayTime: TimeInterval = 2.5
 }
 
 /// Controller-facing seam so lifecycle tests can observe menu-bar state without NSStatusBar.
@@ -46,6 +48,8 @@ protocol StatusPresenting: AnyObject {
     /// Queried when the menu opens to enable/hide the recovery items.
     var recoveryState: (() -> RecoveryMenuState)? { get set }
     var isPaused: Bool { get set }
+    /// The transient error icon has had its time and gone back to idle.
+    var onErrorDismissed: (() -> Void)? { get set }
     func setState(_ state: AppState)
     func refreshHotkeyHint()
 }
@@ -54,6 +58,7 @@ protocol StatusPresenting: AnyObject {
 final class StatusItemController: NSObject, StatusPresenting {
     private let statusItem: NSStatusItem
     private var revertTimer: Timer?
+    private var shownState: AppState?
 
     var onTogglePause: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -63,6 +68,7 @@ final class StatusItemController: NSObject, StatusPresenting {
     var onPasteLast: (() -> Void)?
     var onClearLast: (() -> Void)?
     var recoveryState: (() -> RecoveryMenuState)?
+    var onErrorDismissed: (() -> Void)?
     // Title only: the icon state is owned by DictationController, which knows whether
     // resume should land on idle or on a persistent setup failure (IR-004/IR-007).
     var isPaused = false {
@@ -128,15 +134,19 @@ final class StatusItemController: NSObject, StatusPresenting {
 
     func setState(_ state: AppState) {
         revertTimer?.invalidate()
+        shownState = state
         let image = NSImage(systemSymbolName: state.symbolName, accessibilityDescription: "Internos")
         image?.isTemplate = true
         statusItem.button?.image = image
         if state.autoRevertsToIdle {
             // Fail loud but briefly (PRD §9), then return to idle.
-            revertTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
+            revertTimer = Timer.scheduledTimer(withTimeInterval: AppState.errorDisplayTime, repeats: false) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    guard let self, !self.isPaused else { return }
+                    // Only an error that is still up reverts: a state set since
+                    // the timer fired (setup after a language change) stands.
+                    guard let self, !self.isPaused, self.shownState == .error else { return }
                     self.setState(.idle)
+                    self.onErrorDismissed?()
                 }
             }
         }

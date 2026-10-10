@@ -26,6 +26,7 @@ final class FakeHotkey: HotkeyMonitoring {
     var onKeyUp: (() -> Void)?
     var onSecondaryDown: (() -> Void)?
     var onSecondaryUp: (() -> Void)?
+    var onSecondaryCancel: (() -> Void)?
     var startResult = true
     private(set) var startCount = 0
     private(set) var reloadCount = 0
@@ -34,6 +35,8 @@ final class FakeHotkey: HotkeyMonitoring {
         return startResult
     }
     func reloadSettings() { reloadCount += 1 }
+    private(set) var reportedKeyPresses: [Int] = []
+    func ownKeyPresses(_ count: Int) { reportedKeyPresses.append(count) }
 }
 
 final class FakeRecorder: RecordingSource, @unchecked Sendable {
@@ -59,14 +62,17 @@ final class FakeEngine: TranscriptionProviding, @unchecked Sendable {
     var modelStatusValue: AssetInventory.Status = .installed
 
     var pendingCount: Int { lock.withLock { pending.count } }
+    /// Language each transcription was asked to use, in start order.
+    private var _locales: [String] = []
+    var locales: [String] { lock.withLock { _locales } }
 
-    func modelStatus() async -> AssetInventory.Status { modelStatusValue }
+    func modelStatus(locale: Locale) async -> AssetInventory.Status { modelStatusValue }
 
-    func ensureModel() async throws {
+    func ensureModel(locale: Locale) async throws {
         if let ensureModelError { throw ensureModelError }
     }
 
-    func analyzerFormat() async throws -> AVAudioFormat {
+    func analyzerFormat(locale: Locale) async throws -> AVAudioFormat {
         AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
     }
 
@@ -76,10 +82,12 @@ final class FakeEngine: TranscriptionProviding, @unchecked Sendable {
     func transcribe(
         input: AsyncStream<AnalyzerInput>,
         format: AVAudioFormat,
+        locale: Locale,
         onPartial: (@Sendable (String) -> Void)?
     ) async throws -> String {
         let index: Int = lock.withLock {
             callIndex += 1
+            _locales.append(locale.identifier)
             if let onPartial { partialHandlers[callIndex] = onPartial }
             return callIndex
         }
@@ -108,20 +116,28 @@ final class FakeInserter: TextInserting {
     private(set) var preserved: [String] = []
     var errorToThrow: Error?
     var methodToReport: InsertionMethod = .accessibility
+    var willPostKeyPresses: ((Int) -> Void)?
 
     @discardableResult
     func insert(_ text: String, target: pid_t?) throws -> InsertionMethod {
         if let errorToThrow { throw errorToThrow }
         insertions.append((text, target))
+        if methodToReport == .clipboard { willPostKeyPresses?(1) }
         return methodToReport
     }
 
     func deleteBackward(_ characterCount: Int, target: pid_t?) throws {
         if let errorToThrow { throw errorToThrow }
         deletions.append((characterCount, target))
+        willPostKeyPresses?(characterCount)
     }
 
     func preserveOnClipboard(_ text: String) { preserved.append(text) }
+
+    /// Insertions already made when each settle was awaited: the controller must
+    /// settle the previous paste before it inserts the next transcript.
+    private(set) var insertionCountAtSettle: [Int] = []
+    func settlePendingEvents() async { insertionCountAtSettle.append(insertions.count) }
 }
 
 @MainActor
@@ -135,6 +151,8 @@ final class FakeStatus: StatusPresenting {
     var onClearLast: (() -> Void)?
     var recoveryState: (() -> RecoveryMenuState)?
     var isPaused = false
+    /// Tests call this to play the error icon timing out.
+    var onErrorDismissed: (() -> Void)?
     private(set) var states: [AppState] = []
     func setState(_ state: AppState) { states.append(state) }
     func refreshHotkeyHint() {}

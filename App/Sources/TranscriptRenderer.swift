@@ -7,7 +7,7 @@ import Foundation
 
 enum TranscriptRenderer {
     /// Punctuation that must never get a space inserted before it.
-    private static let noSpaceBefore = Set(".,!?;:\u{201D}\u{2019}\"')]}…")
+    private static let noSpaceBefore = TranscriptTokenizer.trailingPunct
 
     private enum ListRun {
         case none
@@ -23,7 +23,7 @@ enum TranscriptRenderer {
         var listRun = ListRun.none
         var numberCounter = 0
 
-        func appendPiece(_ piece: String) {
+        func appendPiece(_ piece: some StringProtocol) {
             guard !piece.isEmpty else { return }
             if !suppressSpace, let last = out.last, !last.isWhitespace,
                let first = piece.first, !first.isWhitespace, !noSpaceBefore.contains(first) {
@@ -61,6 +61,17 @@ enum TranscriptRenderer {
             switch segment {
             case .text(let text), .literal(let text):
                 appendPiece(text)
+            case .replacement(let text):
+                // Like speech, replacement output attaches to the previous word when
+                // it starts with punctuation (", Inc.", ".com", "'s"). The text alone
+                // can't say whether ".NET" is a suffix or a word, so the user does: a
+                // leading space means "keep these apart", and is dropped where there
+                // is nothing to keep apart from (start of a line, after a list marker).
+                if text.first == " ", suppressSpace || out.last?.isWhitespace != false {
+                    appendPiece(text.drop { $0 == " " })
+                } else {
+                    appendPiece(text)
+                }
             case .lineBreak:
                 appendNewlines(1)
             case .paragraphBreak:

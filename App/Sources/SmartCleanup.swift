@@ -78,20 +78,31 @@ enum CleanupPrompt {
 /// needs semantics only the model has.
 enum FillerStripper {
     private static let fillers: Set<String> = ["um", "uh", "uhm", "er", "erm", "hm", "mhm"]
+    /// Real words whose letter-collapsed form lands on the filler list.
+    private static let collapsingWords: Set<String> = ["err"]
 
     /// The recognizer spells hesitations at whatever length it heard them ("uhh",
-    /// "ummm", "hmmm"), so compare the letter-collapsed form. No real word
-    /// collapses onto this list.
+    /// "ummm", "hmmm"), so compare the letter-collapsed form.
     static func isFiller(_ core: String) -> Bool {
         if fillers.contains(core) { return true }
+        guard !collapsingWords.contains(core) else { return false }
         let collapsed = core.reduce(into: "") { if $0.last != $1 { $0.append($1) } }
         return fillers.contains(collapsed)
     }
 
+    /// `core` is case-folded, so the spelling has to come from the source text:
+    /// the recognizer writes a hesitation as "um" or "Um", never in capitals.
+    /// "ER", "UH", "UM" are initialisms (emergency room, universities) and stay.
+    private static func isFiller(_ token: TranscriptToken, in text: String) -> Bool {
+        guard isFiller(token.core) else { return false }
+        let word = text[token.range].dropFirst(token.leading.count).dropLast(token.trailing.count)
+        return word != word.uppercased()
+    }
+
     static func strip(_ text: String) -> String {
         let tokens = TranscriptTokenizer.tokenize(text)
-        guard tokens.contains(where: { isFiller($0.core) }) else { return text }
-        let kept = tokens.filter { !isFiller($0.core) }
+        guard tokens.contains(where: { isFiller($0, in: text) }) else { return text }
+        let kept = tokens.filter { !isFiller($0, in: text) }
         return kept.map { String(text[$0.range]) }.joined(separator: " ")
     }
 }
@@ -172,7 +183,7 @@ struct SmartCleanupCoordinator: SmartCleaning {
             return nil
         }
         let start = ContinuousClock.now
-        let raw = await Self.withDeadline(limit(for: text)) { [cleaner] in
+        let raw: String? = await withDeadline(limit(for: text)) { [cleaner] in
             await cleaner.clean(text, mode: mode)
         }
         let elapsed = ContinuousClock.now - start
@@ -182,35 +193,6 @@ struct SmartCleanupCoordinator: SmartCleaning {
         }
         NSLog("Internos: cleanup applied (mode \(mode.rawValue), \(elapsed), \(text.count) → \(validated.count) chars)")
         return validated
-    }
-
-    /// Races `work` against the deadline without blocking on a model call that
-    /// ignores cancellation: whoever finishes first wins, the loser is cancelled
-    /// and its eventual result discarded.
-    private static func withDeadline(
-        _ limit: Duration, _ work: @escaping @Sendable () async -> String?
-    ) async -> String? {
-        final class Once: @unchecked Sendable {
-            private let lock = NSLock()
-            private var continuation: CheckedContinuation<String?, Never>?
-            init(_ continuation: CheckedContinuation<String?, Never>) { self.continuation = continuation }
-            func resume(_ value: String?) {
-                let taken: CheckedContinuation<String?, Never>? = lock.withLock {
-                    defer { continuation = nil }
-                    return continuation
-                }
-                taken?.resume(returning: value)
-            }
-        }
-        return await withCheckedContinuation { continuation in
-            let once = Once(continuation)
-            let workTask = Task { once.resume(await work()) }
-            Task {
-                try? await Task.sleep(for: limit)
-                workTask.cancel()
-                once.resume(nil)
-            }
-        }
     }
 
     /// Obvious-failure checks, not semantic fidelity (the raw value stays in

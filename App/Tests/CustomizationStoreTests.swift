@@ -179,4 +179,90 @@ final class CustomizationStoreTests: XCTestCase {
         XCTAssertFalse(contents.contains("raw"), "only configuration keys belong in the store file")
         XCTAssertTrue(contents.contains("schemaVersion"))
     }
+
+    // MARK: - duplicate IDs (crash-loop regression)
+
+    /// Export, rename (the ID stays), merge the export back: the old-name entry
+    /// passes the name check carrying an ID that is already in use.
+    func testMergeImportOfRenamedSnippetGetsFreshID() throws {
+        let store = makeStore()
+        try store.addSnippet(Snippet(name: "sig", content: "Cheers"))
+        try store.addReplacement(Replacement(trigger: "cube control", replacement: "kubectl"))
+        let exported = try store.exportData()
+
+        var snippet = store.snippets[0]
+        snippet.name = "signature"
+        try store.updateSnippet(snippet)
+        var rule = store.replacements[0]
+        rule.trigger = "kube control"
+        try store.updateReplacement(rule)
+
+        let summary = try store.importData(exported, mode: .merge)
+        XCTAssertEqual(summary.snippetsAdded, 1)
+        XCTAssertEqual(store.snippets.map(\.name), ["signature", "sig"])
+        XCTAssertEqual(Set(store.snippets.map(\.id)).count, 2, "IDs must stay unique")
+        XCTAssertEqual(Set(store.replacements.map(\.id)).count, 2)
+        XCTAssertEqual(store.snippetTable.contentByID.count, 2)
+
+        let reloaded = makeStore()
+        XCTAssertEqual(reloaded.snippets.map(\.name), ["signature", "sig"], "and the next launch loads")
+    }
+
+    func testFileWithDuplicateSnippetIDsLoads() throws {
+        let id = UUID()
+        let document = CustomizationDocument(snippets: [
+            Snippet(id: id, name: "one", content: "first"),
+            Snippet(id: id, name: "two", content: "second"),
+        ])
+        _ = makeStore() // creates `directory`
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(document).write(to: directory.appendingPathComponent("customizations.json"))
+
+        let store = makeStore()
+        XCTAssertNil(store.loadError)
+        XCTAssertEqual(store.snippets.map(\.name), ["one", "two"])
+        XCTAssertEqual(Set(store.snippets.map(\.id)).count, 2)
+        XCTAssertEqual(Set(store.snippetTable.contentByID.values), ["first", "second"])
+
+        let replaced = try store.importData(try JSONEncoder().encode(document), mode: .replace)
+        XCTAssertEqual(replaced.snippetsAdded, 2)
+        XCTAssertEqual(Set(store.snippets.map(\.id)).count, 2)
+    }
+
+    func testSnippetTableToleratesDuplicateIDs() {
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "one", "first"), (id, "two", "second")])
+        XCTAssertEqual(table.contentByID[id], "first")
+    }
+
+    // MARK: - failed saves change nothing
+
+    func testFailedSaveLeavesListsUntouched() throws {
+        let seeded = makeStore()
+        try seeded.addReplacement(Replacement(trigger: "keep", replacement: "me"))
+        try seeded.addSnippet(Snippet(name: "sig", content: "Cheers"))
+        let fileURL = directory.appendingPathComponent("customizations.json")
+        // Unwritable target: the directory is read-only, so the atomic write fails.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        let before = try Data(contentsOf: fileURL)
+
+        let store = makeStore()
+        let ruleID = store.replacements[0].id
+        let snippetID = store.snippets[0].id
+        XCTAssertThrowsError(try store.addReplacement(Replacement(trigger: "new", replacement: "x")))
+        XCTAssertThrowsError(try store.deleteReplacement(id: ruleID))
+        XCTAssertThrowsError(try store.setReplacementEnabled(id: ruleID, enabled: false))
+        XCTAssertThrowsError(try store.addSnippet(Snippet(name: "other", content: "x")))
+        XCTAssertThrowsError(try store.deleteSnippet(id: snippetID))
+        XCTAssertThrowsError(try store.setSnippetEnabled(id: snippetID, enabled: false))
+        let incoming = CustomizationDocument(replacements: [Replacement(trigger: "imported", replacement: "y")])
+        XCTAssertThrowsError(try store.importData(try JSONEncoder().encode(incoming), mode: .merge))
+
+        XCTAssertEqual(store.replacements.map(\.trigger), ["keep"])
+        XCTAssertEqual(store.replacements[0].enabled, true)
+        XCTAssertEqual(store.snippets.map(\.name), ["sig"])
+        XCTAssertEqual(store.snippets[0].enabled, true)
+        XCTAssertEqual(try Data(contentsOf: fileURL), before)
+    }
 }

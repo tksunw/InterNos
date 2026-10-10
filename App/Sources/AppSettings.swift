@@ -5,9 +5,15 @@ import CoreGraphics
 import Foundation
 import ServiceManagement
 
-/// Shared with TranscriptionEngine's Sendable locale provider, which reads
-/// UserDefaults directly (it can't touch the MainActor-bound AppSettings).
+/// Shared with `TranscriptionEngine.selectedLocale`, which reads UserDefaults
+/// directly (it can't touch the MainActor-bound AppSettings).
 let recognitionLocaleKey = "recognitionLocale"
+let recognitionLocaleDefault = "en_US"
+/// Shared with the Settings picker, which binds to the stored value directly.
+let cleanupModeKey = "cleanupMode"
+/// What an unset key means, here and in the picker. Off — intentional for 2.0
+/// (decided 2026-07-15), see `AppSettings.cleanupMode`.
+let cleanupModeDefault = CleanupMode.off
 
 enum ActivationMode: String, CaseIterable, Identifiable {
     case pushToTalk
@@ -47,6 +53,16 @@ enum HotkeyChoice: Int64, CaseIterable, Identifiable {
         case .fn: CGEventFlags.maskSecondaryFn.rawValue // Fn has no left/right variant
         }
     }
+    /// The side-independent flag for this key's modifier. Clear means neither
+    /// side is down, which is all the live flag state can say for certain.
+    var genericFlagMask: UInt64 {
+        switch self {
+        case .rightOption: CGEventFlags.maskAlternate.rawValue
+        case .rightCommand: CGEventFlags.maskCommand.rawValue
+        case .rightControl: CGEventFlags.maskControl.rawValue
+        case .fn: CGEventFlags.maskSecondaryFn.rawValue
+        }
+    }
 }
 
 @MainActor
@@ -59,7 +75,6 @@ final class AppSettings {
         static let mode = "activationMode"
         static let inputDeviceUID = "inputDeviceUID"
         static let playSounds = "playSounds"
-        static let cleanupMode = "cleanupMode"
     }
 
     /// Default Off — intentional for 2.0 (decided 2026-07-15), not provisional.
@@ -68,8 +83,8 @@ final class AppSettings {
     /// validation gate degrades all of them safely, but the trust posture is
     /// verbatim-unless-asked. A default change is a separate post-2.0 decision.
     var cleanupMode: CleanupMode {
-        get { CleanupMode(rawValue: defaults.string(forKey: Key.cleanupMode) ?? "") ?? .off }
-        set { defaults.set(newValue.rawValue, forKey: Key.cleanupMode) }
+        get { CleanupMode(rawValue: defaults.string(forKey: cleanupModeKey) ?? "") ?? cleanupModeDefault }
+        set { defaults.set(newValue.rawValue, forKey: cleanupModeKey) }
     }
 
     /// Command-mode key (v2). Command mode is inactive while this equals the
@@ -84,7 +99,7 @@ final class AppSettings {
 
     /// Recognition language (v2 multi-language). Spoken commands remain English.
     var recognitionLocale: String {
-        get { defaults.string(forKey: recognitionLocaleKey) ?? "en_US" }
+        get { defaults.string(forKey: recognitionLocaleKey) ?? recognitionLocaleDefault }
         set { defaults.set(newValue, forKey: recognitionLocaleKey) }
     }
 

@@ -21,7 +21,13 @@ struct TranscriptToken {
 
 enum TranscriptTokenizer {
     private static let leadingPunct = Set("\"'“‘([{¿¡")
-    private static let trailingPunct = Set(".,!?;:\"'”’)]}…")
+    /// Marks that end a sentence.
+    static let sentenceEnders = Set(".!?…")
+    /// Quotes and brackets that close after a word.
+    static let closingMarks = Set("\"'”’)]}")
+    /// Everything that attaches to the end of a word; also what the renderer
+    /// never puts a space in front of.
+    static let trailingPunct = sentenceEnders.union(closingMarks).union(",;:")
 
     /// Whitespace-delimited tokens with punctuation split off, so commands are
     /// recognized next to trailing punctuation and closing quotes.
@@ -61,6 +67,39 @@ enum TranscriptTokenizer {
         }
         let core = String(word[start..<end]).folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
         return TranscriptToken(range: range, core: core, leading: leading, trailing: trailing)
+    }
+
+    /// Whole-phrase match at `start`, for built-in commands and for configured
+    /// triggers and snippet names alike. Punctuation typed in the phrase is part of
+    /// it and must be there ("in." is not the word "in"); any other punctuation
+    /// inside the phrase is a sentence boundary. Returns the punctuation around
+    /// the phrase: before its first word and after its last.
+    static func matchPhrase(
+        _ words: [TriggerWord], at start: Int, tokens: [TranscriptToken]
+    ) -> (leading: String, trailing: String, last: Int)? {
+        guard !words.isEmpty, start + words.count <= tokens.count else { return nil }
+        let last = start + words.count - 1
+        var leading = ""
+        var trailing = ""
+        for (offset, word) in words.enumerated() {
+            let token = tokens[start + offset]
+            guard token.core == word.core else { return nil }
+            if offset == 0 {
+                guard token.leading.hasSuffix(word.leading) else { return nil }
+                leading = String(token.leading.dropLast(word.leading.count))
+            } else {
+                guard token.leading == word.leading else { return nil }
+            }
+            if start + offset < last {
+                guard token.trailing == word.trailing else { return nil }
+            } else {
+                guard token.trailing.hasPrefix(word.trailing) else { return nil }
+                trailing = String(token.trailing.dropFirst(word.trailing.count))
+                // "etc..." is an ellipsis, not the trigger's period and two spare.
+                if word.trailing.hasSuffix("."), trailing.hasPrefix(".") { trailing = token.trailing }
+            }
+        }
+        return (leading, trailing, last)
     }
 
     /// Letter-run-insensitive phrase match: consumes whole tokens while their
@@ -118,8 +157,14 @@ enum TranscriptCommandParser {
         }
     }
 
-    private static let structural: [(words: [String], kind: StructuralKind)] = [
-        (["new", "line"], .lineBreak),
+    /// A built-in phrase in the form `matchPhrase` takes, built once per table,
+    /// the same way a configured trigger is.
+    private static func phrase(_ words: [String]) -> [TriggerWord] {
+        TriggerWord.words(of: words.joined(separator: " "))
+    }
+
+    private static let structural: [(words: [TriggerWord], kind: StructuralKind)] = [
+        (["new", "line"], StructuralKind.lineBreak),
         (["new", "paragraph"], .paragraphBreak),
         (["bullet", "point"], .bulletItem),
         (["numbered", "item"], .numberedItem),
@@ -127,16 +172,16 @@ enum TranscriptCommandParser {
         (["close", "quote"], .closingMark("\u{201D}")),
         (["open", "parenthesis"], .openingMark("(")),
         (["close", "parenthesis"], .closingMark(")")),
-    ]
+    ].map { (phrase($0.0), $0.1) }
 
-    private static let symbols: [([String], String)] = [
+    private static let symbols: [([TriggerWord], String)] = [
         (["at", "sign"], "@"),
         (["dollar", "sign"], "$"),
         (["percent", "sign"], "%"),
-    ]
+    ].map { (phrase($0.0), $0.1) }
 
     // Names recognized only after the spoken word "emoji". Longest match wins.
-    private static let emoji: [([String], String)] = [
+    private static let emoji: [([TriggerWord], String)] = [
         (["smiley", "face"], "🙂"),
         (["smiley"], "🙂"),
         (["winking", "face"], "😉"),
@@ -165,7 +210,7 @@ enum TranscriptCommandParser {
         (["sparkles"], "✨"),
         (["sunglasses"], "😎"),
         (["poop"], "💩"),
-    ]
+    ].map { (phrase($0.0), $0.1) }.sorted { $0.0.count > $1.0.count }
 
     // MARK: parsing
 
@@ -243,14 +288,14 @@ enum TranscriptCommandParser {
         guard isPrefix(tokens[i], "snippet") else { return nil }
         // Token-wise first (exact spoken form), longest name first.
         for entry in snippets.names {
-            guard let hit = matchWords(entry.tokens, at: i + 1, tokens: tokens) else { continue }
+            guard let hit = matchWords(entry.words, at: i + 1, tokens: tokens) else { continue }
             var segments: [TranscriptSegment] = [.snippet(entry.id)]
             if !hit.trailing.isEmpty { segments.append(.text(hit.trailing)) }
-            return Match(segments: segments, consumed: 1 + entry.tokens.count)
+            return Match(segments: segments, consumed: 1 + entry.words.count)
         }
         // Letter-run-insensitive fallback: the recognizer merges/punctuates spelled
         // letters ("TK sun W", "T. K. Sun W."), so compare squashed alphanumerics.
-        for entry in snippets.names.sorted(by: { $0.compactKey.count > $1.compactKey.count }) {
+        for entry in snippets.namesByCompactKey {
             guard let hit = matchCompact(entry.compactKey, at: i + 1, tokens: tokens) else { continue }
             var segments: [TranscriptSegment] = [.snippet(entry.id)]
             if !hit.trailing.isEmpty { segments.append(.text(hit.trailing)) }
@@ -279,34 +324,26 @@ enum TranscriptCommandParser {
             return Match(segments: [.literal("#" + String(raw[tokens[i + 1].range]))], consumed: 2)
         }
         if isPrefix(tokens[i], "emoji") {
-            for (words, glyph) in emoji.sorted(by: { $0.0.count > $1.0.count }) {
+            for (words, glyph) in emoji {
                 guard let hit = matchWords(words, at: i + 1, tokens: tokens) else { continue }
                 return Match(segments: [.literal(glyph + hit.trailing)], consumed: 1 + words.count)
             }
         }
-        for (words, glyph) in symbols.sorted(by: { $0.0.count > $1.0.count }) {
+        for (words, glyph) in symbols {
             guard let hit = matchWords(words, at: i, tokens: tokens) else { continue }
             return Match(segments: [.literal(glyph + hit.trailing)], consumed: words.count)
         }
         return nil
     }
 
-    /// Case-insensitive whole-phrase match at `start`. Inner words must be bare;
-    /// the last word's trailing punctuation is surfaced to the caller.
+    /// `matchPhrase` for phrases that follow a command word or stand alone: no
+    /// punctuation of the sentence's own may open the first word.
     private static func matchWords(
-        _ words: [String], at start: Int, tokens: [TranscriptToken]
+        _ words: [TriggerWord], at start: Int, tokens: [TranscriptToken]
     ) -> (trailing: String, last: Int)? {
-        guard !words.isEmpty, start + words.count <= tokens.count else { return nil }
-        var trailing = ""
-        for (offset, word) in words.enumerated() {
-            let token = tokens[start + offset]
-            let isLast = offset == words.count - 1
-            guard token.core == word, token.leading.isEmpty, isLast || token.trailing.isEmpty else {
-                return nil
-            }
-            if isLast { trailing = token.trailing }
-        }
-        return (trailing, start + words.count - 1)
+        guard let hit = TranscriptTokenizer.matchPhrase(words, at: start, tokens: tokens),
+              hit.leading.isEmpty else { return nil }
+        return (hit.trailing, hit.last)
     }
 
     private static func span(_ raw: String, _ tokens: [TranscriptToken], _ a: Int, _ b: Int) -> String {

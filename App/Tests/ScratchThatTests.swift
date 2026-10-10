@@ -120,4 +120,53 @@ final class ScratchThatTests: XCTestCase {
 
         XCTAssertEqual(inserter.deletions.map(\.count), [7], "scratch deletes the most recent insertion only")
     }
+
+    /// A failed insertion leaves its transcript on the clipboard for a manual
+    /// paste; scratching then must not delete the length of the insertion before it.
+    func testFailedInsertionClearsScratchTarget() async {
+        let controller = await makeReadyController()
+        await dictate(controller, "an earlier sentence that was inserted", index: 1)
+        XCTAssertNotNil(controller.lastInsertion)
+
+        inserter.errorToThrow = InternosError.secureInputActive
+        await dictate(controller, "left on the clipboard", index: 2)
+        XCTAssertNil(controller.lastInsertion)
+
+        inserter.errorToThrow = nil
+        await dictate(controller, "scratch that", index: 3)
+        XCTAssertTrue(inserter.deletions.isEmpty, "nothing safe to delete")
+        XCTAssertEqual(status.states.last, .error)
+    }
+
+    /// The hotkey monitor is told about every key press Internos posts: one for
+    /// a clipboard paste, one per backspace, none for an accessibility insertion.
+    func testOwnKeyPressesAreReportedToTheHotkeyMonitor() async {
+        let hotkey = FakeHotkey()
+        engine = FakeEngine()
+        inserter = FakeInserter()
+        status = FakeStatus()
+        let controller = DictationController(
+            hotkey: hotkey,
+            recorder: FakeRecorder(),
+            engine: engine,
+            inserter: inserter,
+            statusItem: status,
+            indicator: FakeIndicator(),
+            processingSettings: { ProcessingSettings() },
+            playSound: { _ in },
+            frontmostPID: { 42 },
+            onboardingPresenter: { _, _ in }
+        )
+        await controller.initializePipeline()
+
+        await dictate(controller, "direct", index: 1)
+        XCTAssertEqual(hotkey.reportedKeyPresses, [], "an accessibility insertion posts no keys")
+
+        inserter.methodToReport = .clipboard
+        await dictate(controller, "pasted text", index: 2)
+        XCTAssertEqual(hotkey.reportedKeyPresses, [1])
+
+        await dictate(controller, "scratch that", index: 3)
+        XCTAssertEqual(hotkey.reportedKeyPresses, [1, 11])
+    }
 }

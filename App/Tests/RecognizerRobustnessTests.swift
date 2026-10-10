@@ -93,6 +93,7 @@ final class CommandModeFeedbackTests: XCTestCase {
         )
         await controller.initializePipeline()
         controller.commandKeyDown()
+        controller.commandKeyUp() // reported on release, once it can't be a shortcut
         XCTAssertEqual(indicator.messages.count, 1, "an invisible failure is a bug — say why")
         XCTAssertTrue(indicator.messages[0].contains("Select some text"))
     }
@@ -116,6 +117,7 @@ final class CommandModeFeedbackTests: XCTestCase {
         )
         await controller.initializePipeline()
         controller.commandKeyDown()
+        controller.commandKeyUp()
         XCTAssertEqual(indicator.messages.count, 1)
         XCTAssertTrue(indicator.messages[0].contains("Apple Intelligence"))
     }

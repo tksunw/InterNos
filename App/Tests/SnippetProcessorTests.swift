@@ -98,4 +98,36 @@ final class SnippetProcessorTests: XCTestCase {
         let got = await processed("snippet calendar link and snippet calendar link")
         XCTAssertEqual(got, "https://example.com/schedule and https://example.com/schedule")
     }
+
+    func testSnippetNameWithPunctuationMatches() async {
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "Dr. Smith", "Dr. Jane Smith, MD")])
+        for raw in ["snippet Dr. Smith", "Snippet dr. smith, please", "Snippet Dr. Smith."] {
+            let got = await TranscriptPipeline().process(
+                raw, settings: ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: table)
+            ).final
+            XCTAssertTrue(got.hasPrefix("Dr. Jane Smith, MD"), "\(raw) → \(got)")
+        }
+    }
+
+    func testSnippetContentWithLeadingSpaceStaysApart() async {
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "framework", " .NET 9")])
+        let got = await TranscriptPipeline().process(
+            "we target snippet framework now",
+            settings: ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: table)
+        ).final
+        XCTAssertEqual(got, "we target .NET 9 now")
+    }
+
+    /// Snippet content is verbatim, leading indentation included.
+    func testSnippetLeadingWhitespaceIsPreserved() async {
+        let id = UUID()
+        let table = SnippetTable(snippets: [(id, "indent", "    return nil")])
+        let got = await TranscriptPipeline().process(
+            "guard new line snippet indent",
+            settings: ProcessingSettings(cleanupMode: .off, replacements: .empty, snippets: table)
+        ).final
+        XCTAssertEqual(got, "guard\n    return nil")
+    }
 }

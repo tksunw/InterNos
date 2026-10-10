@@ -17,9 +17,12 @@ struct TranscriptResult: Equatable, Sendable {
 enum TranscriptSegment: Equatable, Sendable {
     /// Ordinary speech text. Cleanup and user replacements apply only here.
     case text(String)
-    /// Protected exact output (literal escapes, emoji/hashtag/symbol results,
-    /// replacement outputs). Rendered verbatim, skipped by every later stage.
+    /// Protected exact output (literal escapes, emoji/hashtag/symbol results).
+    /// Rendered verbatim, skipped by every later stage.
     case literal(String)
+    /// Protected output of a personal-dictionary rule. Like `literal`, except a
+    /// leading space is the user's "keep this apart from the previous word".
+    case replacement(String)
     case lineBreak
     case paragraphBreak
     case bulletItem
@@ -117,9 +120,17 @@ struct TranscriptPipeline: TranscriptProcessing {
         }
 
         // Replacements run after cleanup so configured spelling is authoritative.
-        segments = segments.flatMap { segment -> [TranscriptSegment] in
+        let parsed = segments
+        segments = parsed.enumerated().flatMap { index, segment -> [TranscriptSegment] in
             guard case .text(let text) = segment else { return [segment] }
-            return settings.replacements.apply(to: text)
+            // The text ends a sentence when nothing follows it or a break does,
+            // looking past spoken closing quotes and brackets.
+            let next = parsed[(index + 1)...].first { if case .closingMark = $0 { false } else { true } }
+            let endsSentence: Bool = switch next {
+            case nil, .lineBreak, .paragraphBreak, .bulletItem, .numberedItem: true
+            default: false
+            }
+            return settings.replacements.apply(to: text, endsSentence: endsSentence)
         }
 
         let final = TranscriptRenderer.render(segments, snippets: settings.snippets)
@@ -129,6 +140,38 @@ struct TranscriptPipeline: TranscriptProcessing {
 
 // MARK: - Replacement matching
 
+/// One word of a configured trigger or snippet name, split the way the tokenizer
+/// splits transcript words, so "Dr. Smith" is compared as dr + smith rather than
+/// as a "dr." no transcript token ever equals.
+struct TriggerWord: Sendable, Equatable {
+    /// Punctuation typed before the word ("'til" → "'").
+    var leading = ""
+    /// Case-folded, like `TranscriptToken.core`.
+    let core: String
+    /// Punctuation typed after the word ("Dr." → ".").
+    var trailing = ""
+
+    /// Punctuation typed in a phrase is part of it: the transcript has to carry
+    /// it too, so "in." never fires on the word "in" nor "(c)" on a bare "c".
+    var punctuationCount: Int { leading.count + trailing.count }
+
+    /// The words of `phrase`, with each word's punctuation split off.
+    static func words(of phrase: String) -> [TriggerWord] {
+        TranscriptTokenizer.tokenize(phrase).map {
+            TriggerWord(leading: $0.leading, core: $0.core, trailing: $0.trailing)
+        }
+    }
+
+    /// Match order: the longest phrase first, and among equals the one typed with
+    /// more punctuation, so "vs." gets its own rule's output while a plain "vs"
+    /// rule still takes every other spelling. Two triggers match the same words
+    /// only when they are the same string, which is what the store rejects.
+    static func isMoreSpecific(_ a: [TriggerWord], than b: [TriggerWord]) -> Bool {
+        if a.count != b.count { return a.count > b.count }
+        return a.reduce(0) { $0 + $1.punctuationCount } > b.reduce(0) { $0 + $1.punctuationCount }
+    }
+}
+
 /// Precomputed matcher for the personal dictionary (feature 1). Built once when the
 /// configuration changes, not per token: rules are keyed by first word and sorted
 /// longest-first so overlapping triggers resolve to the longest match.
@@ -136,7 +179,7 @@ struct ReplacementMatcher: Sendable {
     static let empty = ReplacementMatcher(rules: [])
 
     private struct Rule: Sendable {
-        let tokens: [String]
+        let words: [TriggerWord]
         let output: String
     }
 
@@ -156,30 +199,25 @@ struct ReplacementMatcher: Sendable {
         var map: [String: [Rule]] = [:]
         var compact: [Character: [CompactRule]] = [:]
         for rule in rules {
-            let tokens = Self.normalizedTriggerTokens(rule.trigger)
-            guard let first = tokens.first else { continue }
-            map[first, default: []].append(Rule(tokens: tokens, output: rule.output))
-            let key = SnippetTable.compactKey(of: tokens)
+            let words = TriggerWord.words(of: rule.trigger)
+            guard let first = words.first else { continue }
+            map[first.core, default: []].append(Rule(words: words, output: rule.output))
+            let key = SnippetTable.compactKey(of: words)
             if let firstChar = key.first {
                 compact[firstChar, default: []].append(CompactRule(key: key, output: rule.output))
             }
         }
-        byFirstWord = map.mapValues { $0.sorted { $0.tokens.count > $1.tokens.count } }
+        byFirstWord = map.mapValues { $0.sorted { TriggerWord.isMoreSpecific($0.words, than: $1.words) } }
         compactByFirstChar = compact.mapValues { $0.sorted { $0.key.count > $1.key.count } }
     }
 
-    /// Locale-independent case folding + whitespace normalization, shared with
-    /// validation so duplicate detection and matching agree.
-    static func normalizedTriggerTokens(_ trigger: String) -> [String] {
-        trigger.folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-    }
-
-    /// Splits ordinary text into text/literal segments. Whole-word matches only;
-    /// each span is replaced at most once and outputs are emitted as protected
-    /// literals, so replacement text can never trigger anything else.
-    func apply(to text: String) -> [TranscriptSegment] {
+    /// Splits ordinary text into text/replacement segments. Whole-word matches
+    /// only; each span is replaced at most once and outputs are emitted as
+    /// protected `.replacement` segments, so replacement text can never trigger
+    /// anything else.
+    /// `endsSentence`: nothing follows this text on its line, so its last word
+    /// ends a sentence.
+    func apply(to text: String, endsSentence: Bool = true) -> [TranscriptSegment] {
         guard !isEmpty else { return [.text(text)] }
         let tokens = TranscriptTokenizer.tokenize(text)
         var segments: [TranscriptSegment] = []
@@ -194,10 +232,12 @@ struct ReplacementMatcher: Sendable {
 
         var i = 0
         while i < tokens.count {
-            if let (output, consumed) = match(at: i, tokens: tokens) {
+            if let (output, leading, trailing, consumed) = match(at: i, tokens: tokens, endsSentence: endsSentence) {
                 flushRun(upTo: i)
                 // Punctuation immediately outside the phrase is preserved.
-                segments.append(.literal(tokens[i].leading + output + tokens[i + consumed - 1].trailing))
+                // Behind an opening quote or bracket there is nothing to keep apart.
+                let body = leading.isEmpty ? Substring(output) : output.drop { $0 == " " }
+                segments.append(.replacement(leading + body + trailing))
                 i += consumed
             } else {
                 if runStart == nil { runStart = i }
@@ -208,21 +248,23 @@ struct ReplacementMatcher: Sendable {
         return segments.isEmpty ? [.text("")] : segments
     }
 
-    private func match(at i: Int, tokens: [TranscriptToken]) -> (output: String, consumed: Int)? {
+    private func match(
+        at i: Int, tokens: [TranscriptToken], endsSentence: Bool
+    ) -> (output: String, leading: String, trailing: String, consumed: Int)? {
         if let candidates = byFirstWord[tokens[i].core] {
             for rule in candidates {
-                let count = rule.tokens.count
-                guard i + count <= tokens.count else { continue }
-                var ok = true
-                for (offset, word) in rule.tokens.enumerated() {
-                    let token = tokens[i + offset]
-                    let isFirst = offset == 0
-                    let isLast = offset == count - 1
-                    guard token.core == word,
-                          isFirst || token.leading.isEmpty,
-                          isLast || token.trailing.isEmpty else { ok = false; break }
-                }
-                if ok { return (rule.output, count) }
+                guard let hit = TranscriptTokenizer.matchPhrase(rule.words, at: i, tokens: tokens) else { continue }
+                // One period serves both an abbreviation and the sentence it ends:
+                // "apples, etc." keeps its full stop when "etc." is rewritten. Only
+                // where the text itself stops (end of the dictation, or a break).
+                // Mid-text there is no telling "etc. Then" from "Dr. Smith", and
+                // the period is taken as the trigger's.
+                // Closing quotes and brackets after it don't change that (etc.”).
+                let onlyClosers = hit.trailing.allSatisfy(TranscriptTokenizer.closingMarks.contains)
+                let keepsFullStop = endsSentence && onlyClosers && hit.last == tokens.count - 1
+                    && rule.words[rule.words.count - 1].trailing.hasSuffix(".")
+                    && !(rule.output.last.map(TranscriptTokenizer.sentenceEnders.contains) ?? false)
+                return (rule.output, hit.leading, (keepsFullStop ? "." : "") + hit.trailing, rule.words.count)
             }
         }
         // Letter-run-insensitive fallback: "t k sun w" must match "TK sun W" and
@@ -231,7 +273,7 @@ struct ReplacementMatcher: Sendable {
         if let firstChar = piece.first, let candidates = compactByFirstChar[firstChar] {
             for rule in candidates {
                 if let hit = TranscriptTokenizer.compactMatch(rule.key, at: i, tokens: tokens) {
-                    return (rule.output, hit.consumed)
+                    return (rule.output, tokens[i].leading, hit.trailing, hit.consumed)
                 }
             }
         }
@@ -247,7 +289,7 @@ struct SnippetTable: Sendable {
 
     struct Entry: Sendable {
         let id: UUID
-        let tokens: [String]
+        let words: [TriggerWord]
         /// Squashed alphanumeric form ("t k sun w" → "tksunw") for letter-run-
         /// insensitive matching: the recognizer merges and punctuates spelled
         /// letters unpredictably ("TK sun W", "T. K. Sun W."), so token-wise
@@ -257,31 +299,52 @@ struct SnippetTable: Sendable {
 
     /// Sorted longest-first so the longest name wins.
     let names: [Entry]
+    /// The same entries, longest compact key first, for the letter-run fallback.
+    let namesByCompactKey: [Entry]
     let contentByID: [UUID: String]
 
     /// Folded alphanumerics only — the recognizer-proof comparison form. Empty
-    /// (= disabled) unless the name contains a single-character token: compact
-    /// matching exists for spelled-letter names, and applying it to ordinary
-    /// phrases would let "so on" match the word "soon".
-    static func compactKey(of tokens: [String]) -> String {
-        guard tokens.contains(where: { $0.count == 1 }) else { return "" }
-        return tokens.map { token in
+    /// (= disabled) unless the name contains a spelled letter: compact matching
+    /// exists for spelled-letter names, and applying it to ordinary phrases would
+    /// let "so on" match the word "soon". A spelled letter is a single character
+    /// typed bare: "T" in "Mr. T", not the "I." of "I. T.", which would squash to
+    /// the word "it". A lone "a" is the article, not a letter ("a part" must not
+    /// match "apart"); next to another single character it is one ("a w s").
+    /// "i" stays a letter even alone: "i phone", "i pad", "i cloud" are how
+    /// people type the rules that fix "Iphone", and nobody keeps "I deal" in a
+    /// dictionary.
+    /// The key is letters and digits only, as it always was: this fallback is
+    /// deliberately loose about punctuation ("Mr. T" still matches "Mr T" and
+    /// "MRT"), unlike the word-by-word match that is tried first.
+    static func compactKey(of words: [TriggerWord]) -> String {
+        func isBareLetter(_ index: Int) -> Bool {
+            words.indices.contains(index) && words[index].core.count == 1 && words[index].punctuationCount == 0
+        }
+        let hasSpelledLetter = words.indices.contains { index in
+            guard isBareLetter(index) else { return false }
+            return words[index].core != "a" || isBareLetter(index - 1) || isBareLetter(index + 1)
+        }
+        guard hasSpelledLetter else { return "" }
+        return words.map(\.core).map { token in
             String(token.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
         }.joined()
     }
 
     init(names: [Entry], contentByID: [UUID: String]) {
-        self.names = names.sorted { $0.tokens.count > $1.tokens.count }
+        self.names = names.sorted { TriggerWord.isMoreSpecific($0.words, than: $1.words) }
+        self.namesByCompactKey = names.sorted { $0.compactKey.count > $1.compactKey.count }
         self.contentByID = contentByID
     }
 
     init(snippets: [(id: UUID, name: String, content: String)]) {
         self.init(
             names: snippets.map {
-                let tokens = ReplacementMatcher.normalizedTriggerTokens($0.name)
-                return Entry(id: $0.id, tokens: tokens, compactKey: Self.compactKey(of: tokens))
+                let words = TriggerWord.words(of: $0.name)
+                return Entry(id: $0.id, words: words, compactKey: Self.compactKey(of: words))
             },
-            contentByID: Dictionary(uniqueKeysWithValues: snippets.map { ($0.id, $0.content) })
+            // The store keeps IDs unique; a repeat must still never trap here,
+            // on the launch path, where it would be a crash loop.
+            contentByID: Dictionary(snippets.map { ($0.id, $0.content) }, uniquingKeysWith: { first, _ in first })
         )
     }
 }

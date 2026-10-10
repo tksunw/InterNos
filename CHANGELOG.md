@@ -6,6 +6,8 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-10
+
 ### Changed
 - The command key now has to be held alone for a fifth of a second before
   command mode starts recording, so wait for the start sound before speaking
@@ -369,6 +371,8 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/tksunw/InterNos/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/tksunw/InterNos/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/tksunw/InterNos/compare/v2.1.2...v2.2.0
 [2.1.2]: https://github.com/tksunw/InterNos/compare/v2.1.1...v2.1.2

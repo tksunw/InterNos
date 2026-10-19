@@ -155,16 +155,35 @@ final class CustomizationStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(document)
 
-        let directory = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try data.write(to: fileURL, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        try Self.writePrivately(data, to: fileURL)
 
         replacements = newReplacements
         snippets = newSnippets
         // A successful user save resolves a previously surfaced malformed-file error.
         loadError = nil
         rebuildMatchStructures()
+    }
+
+    /// Atomic replace with the file owner-only from the first byte: the temp file
+    /// is created 0600 and renamed over the target, so there is no moment where
+    /// a default-umask copy of the configuration exists. The folder is created
+    /// 0700 for the same reason (an existing folder keeps its mode).
+    private static func writePrivately(_ data: Data, to fileURL: URL) throws {
+        let fm = FileManager.default
+        let directory = fileURL.deletingLastPathComponent()
+        try fm.createDirectory(
+            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let temp = directory.appendingPathComponent(".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp")
+        guard fm.createFile(atPath: temp.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temp.path])
+        }
+        guard rename(temp.path, fileURL.path) == 0 else {
+            let code = errno
+            try? fm.removeItem(at: temp)
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSFilePathErrorKey: fileURL.path, NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO),
+            ])
+        }
     }
 
     private func rebuildMatchStructures() {

@@ -6,6 +6,25 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- If the clipboard held a concealed entry (a password manager's copy) before a
+  clipboard-path insertion, Internos now clears the clipboard after the paste
+  instead of restoring that entry. Restoring it gave the secret a new clipboard
+  entry that the manager's timed clear could miss. See PRIVACY.md.
+- Command mode now hands the selected text to the on-device model as marked
+  data, the way smart cleanup does, so a selection that itself reads like an
+  instruction is edited rather than obeyed.
+- The customizations file and its folder are created owner-only from the first
+  byte, instead of being created with default permissions and tightened after.
+
+### Fixed
+- "Scratch that" after an Accessibility-path insertion now checks that the
+  focused field still reads as it did right after the insertion. If the caret
+  moved or the text changed since (another field or document in the same app),
+  nothing is deleted and the error icon shows.
+- Choosing a microphone whose input node exposes no audio unit no longer
+  crashes; the system default input is used instead.
+
 ## [2.3.0] - 2026-10-10
 
 ### Changed

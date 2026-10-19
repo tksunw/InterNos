@@ -126,9 +126,19 @@ final class TextInserter: TextInserting {
     private let accessibilityGranted: () -> Bool
     private let frontmostPID: () -> pid_t?
     private let axInsertionUnreliable: (pid_t) -> Bool
-    private let axInsert: (String, pid_t) -> Bool
+    /// Nil when the AX write was refused or dropped; otherwise what the focused
+    /// element reported right after it, so a later scratch can tell whether the
+    /// caret is still where the insertion left it.
+    private let axInsert: (String, pid_t) -> AXTextSnapshot?
+    private let axSnapshot: (pid_t) -> AXTextSnapshot
     private let postPaste: () throws -> Void
     private let postBackspaces: (Int) throws -> Void
+
+    /// Where the focused element stood after the last AX-direct insertion. A
+    /// scratch deletes blind, by backspace count, so this is the one check that
+    /// the characters behind the caret are still the ones it would delete. Nil
+    /// after a clipboard paste (nothing readable to compare) and after a scratch.
+    private var lastAXInsertion: (target: pid_t, snapshot: AXTextSnapshot)?
 
     init(
         pasteboard: any PasteboardProviding = NSPasteboard.general,
@@ -144,7 +154,8 @@ final class TextInserter: TextInserting {
         accessibilityGranted: @escaping () -> Bool = { TextInserter.checkAccessibility(promptIfNeeded: false) },
         frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
         axInsertionUnreliable: @escaping (pid_t) -> Bool = { TextInserter.isChromiumApp($0) },
-        axInsert: @escaping (String, pid_t) -> Bool = { TextInserter.accessibilityInsert($0, targetPID: $1) },
+        axInsert: @escaping (String, pid_t) -> AXTextSnapshot? = { TextInserter.accessibilityInsert($0, targetPID: $1) },
+        axSnapshot: @escaping (pid_t) -> AXTextSnapshot = { TextInserter.focusedTextSnapshot(ofApplication: $0) },
         postPaste: @escaping () throws -> Void = { try TextInserter.postCommandV() },
         postBackspaces: @escaping (Int) throws -> Void = { try TextInserter.postBackspaces($0) }
     ) {
@@ -157,6 +168,7 @@ final class TextInserter: TextInserting {
         self.frontmostPID = frontmostPID
         self.axInsertionUnreliable = axInsertionUnreliable
         self.axInsert = axInsert
+        self.axSnapshot = axSnapshot
         self.postPaste = postPaste
         self.postBackspaces = postBackspaces
     }
@@ -192,12 +204,14 @@ final class TextInserter: TextInserting {
         // double insertion); the volatile recovery buffer covers a lying app.
         // Known liars (Chromium reports a successful selected-text write into web
         // content without inserting anything) never get offered the AX path.
-        if !axInsertionUnreliable(target), axInsert(text, target) {
+        if !axInsertionUnreliable(target), let after = axInsert(text, target) {
+            lastAXInsertion = after.isEmpty ? nil : (target, after)
             return .accessibility
         }
 
+        lastAXInsertion = nil
         flushPendingRestore()
-        let saved = pasteboard.snapshotItems()
+        let saved = Self.restorableItems(pasteboard.snapshotItems())
         writeTranscript(text)
         let injected = pasteboard.changeCount
 
@@ -223,6 +237,13 @@ final class TextInserter: TextInserting {
         guard let target, let current = frontmostPID(), current == target else {
             throw InternosError.insertionTargetChanged
         }
+        // Same app is not the same caret: the user may have clicked into another
+        // field or document since, and the backspaces would eat that instead.
+        if let last = lastAXInsertion, last.target == target,
+           !Self.caretStillAtInsertion(recorded: last.snapshot, current: axSnapshot(target)) {
+            throw InternosError.scratchTargetChanged
+        }
+        lastAXInsertion = nil
         try posting(characterCount) { try postBackspaces(characterCount) }
         // ponytail: 1 ms per backspace on top of the paste window is a guess at how
         // fast an app drains key events; raise it if a scratch eats the next insertion.
@@ -292,6 +313,23 @@ final class TextInserter: TextInserting {
         pasteboard.clear()
         guard !items.isEmpty else { return }
         pasteboard.writeItems(items)
+    }
+
+    /// What the restore may put back. A concealed entry (a password manager's
+    /// copy) is not restored: writing it back gives it a new change count, and a
+    /// manager that clears its copy only while it still owns the pasteboard would
+    /// then leave the secret there for good. The restore clears instead, which is
+    /// what the manager would have done shortly anyway.
+    static func restorableItems(_ items: [[NSPasteboard.PasteboardType: Data]]) -> [[NSPasteboard.PasteboardType: Data]] {
+        items.contains { $0[.concealedMarker] != nil } ? [] : items
+    }
+
+    /// Whether a scratch may delete behind the caret: the focused element reads
+    /// as it did right after the insertion, or it reads nothing at all (an app
+    /// that exposes neither count nor selection, where there is nothing to
+    /// compare and the same-app check is all there is).
+    static func caretStillAtInsertion(recorded: AXTextSnapshot, current: AXTextSnapshot) -> Bool {
+        current.isEmpty || current == recorded
     }
 
     /// A key press with exactly `flags` as its modifiers. The flags are always set
@@ -410,6 +448,13 @@ final class TextInserter: TextInserting {
         before.isEmpty || before != after
     }
 
+    /// The focused element's text state right now; empty when the app has no
+    /// focused element or it exposes nothing readable.
+    static func focusedTextSnapshot(ofApplication pid: pid_t) -> AXTextSnapshot {
+        guard let element = focusedElement(ofApplication: pid) else { return AXTextSnapshot() }
+        return textSnapshot(of: element)
+    }
+
     private static func textSnapshot(of element: AXUIElement) -> AXTextSnapshot {
         var snapshot = AXTextSnapshot()
         var countRef: CFTypeRef?
@@ -430,9 +475,10 @@ final class TextInserter: TextInserting {
 
     /// Accessibility-direct insertion: sets kAXSelectedTextAttribute on the target
     /// app's focused element, which inserts at the caret or replaces the current
-    /// selection. Returns false when the element doesn't support settable selected
+    /// selection. Returns nil when the element doesn't support settable selected
     /// text (web areas in some apps, terminals), or when the app reported success
     /// for a write it dropped — the caller falls back to the clipboard swap.
+    /// Otherwise returns the element's state after the write, for scratch-that.
     ///
     /// The read-back exists because Chromium's AX layer returns success for a
     /// kAXSelectedTextAttribute write into web content without inserting anything
@@ -442,22 +488,23 @@ final class TextInserter: TextInserting {
     /// an unchanged snapshot is a dropped write, not a race. `isChromiumApp` stays
     /// as the fast path that skips the doomed attempt; this is the net for hosts
     /// the sniff can't see (Chromium under Contents/Helpers, PWA shims…).
-    static func accessibilityInsert(_ text: String, targetPID: pid_t) -> Bool {
-        guard !text.isEmpty, let element = focusedElement(ofApplication: targetPID) else { return false }
+    static func accessibilityInsert(_ text: String, targetPID: pid_t) -> AXTextSnapshot? {
+        guard !text.isEmpty, let element = focusedElement(ofApplication: targetPID) else { return nil }
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
               settable.boolValue else {
-            return false
+            return nil
         }
         let before = textSnapshot(of: element)
         guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success else {
-            return false
+            return nil
         }
-        let tookEffect = axWriteTookEffect(before: before, after: textSnapshot(of: element))
-        if !tookEffect {
+        let after = textSnapshot(of: element)
+        guard axWriteTookEffect(before: before, after: after) else {
             NSLog("Internos: AX insertion reported success but the element did not change — falling back to clipboard")
+            return nil
         }
-        return tookEffect
+        return after
     }
 
     /// Reads the selected text of the frontmost app's focused element (command mode).

@@ -12,6 +12,9 @@ final class TextInserterTests: XCTestCase {
     private var pastesPosted = 0
     private var axInsertions: [(text: String, pid: pid_t)] = []
     private var backspacesPosted: [Int] = []
+    /// What the fake focused element reports after an AX insertion, and now.
+    private var axSnapshotAfterInsert = TextInserter.AXTextSnapshot()
+    private var axSnapshotNow = TextInserter.AXTextSnapshot()
 
     private func makeInserter(
         secureInput: Bool = false,
@@ -26,6 +29,8 @@ final class TextInserterTests: XCTestCase {
         pastesPosted = 0
         axInsertions = []
         backspacesPosted = []
+        axSnapshotAfterInsert = TextInserter.AXTextSnapshot()
+        axSnapshotNow = TextInserter.AXTextSnapshot()
         return TextInserter(
             pasteboard: pasteboard,
             scheduleRestore: { [self] work in scheduled.append(work) },
@@ -34,9 +39,11 @@ final class TextInserterTests: XCTestCase {
             frontmostPID: frontmost,
             axInsertionUnreliable: { _ in axUnreliable },
             axInsert: { [self] text, pid in
-                if axSucceeds { axInsertions.append((text, pid)) }
-                return axSucceeds
+                guard axSucceeds else { return nil }
+                axInsertions.append((text, pid))
+                return axSnapshotAfterInsert
             },
+            axSnapshot: { [self] _ in axSnapshotNow },
             postPaste: { [self] in
                 if let postPasteError { throw postPasteError }
                 pastesPosted += 1
@@ -294,7 +301,7 @@ final class TextInserterTests: XCTestCase {
             accessibilityGranted: { true },
             frontmostPID: { 42 },
             axInsertionUnreliable: { _ in false },
-            axInsert: { _, _ in axSucceeds },
+            axInsert: { _, _ in axSucceeds ? TextInserter.AXTextSnapshot() : nil },
             postPaste: {},
             postBackspaces: { _ in }
         )
@@ -350,5 +357,82 @@ final class TextInserterTests: XCTestCase {
         failing.willPostKeyPresses = { posted.append($0) }
         XCTAssertThrowsError(try failing.insert("never posted", target: 42))
         XCTAssertEqual(posted, [1, -1])
+    }
+    // MARK: concealed clipboard entries (password managers)
+
+    func testConcealedClipboardIsClearedNotRestored() throws {
+        let inserter = makeInserter()
+        pasteboard.writeItems([[.string: Data("hunter2".utf8), .concealedMarker: Data()]])
+        try inserter.insert("transcript", target: 42)
+        runPendingRestore()
+        XCTAssertTrue(pasteboard.items.isEmpty, "a concealed entry must not come back under a new change count")
+    }
+
+    func testRestorableItemsDropsWholeSnapshotWhenAnyItemIsConcealed() {
+        let plain: [[NSPasteboard.PasteboardType: Data]] = [[.string: Data("a".utf8)]]
+        XCTAssertEqual(TextInserter.restorableItems(plain).count, 1)
+        let mixed = plain + [[.string: Data("secret".utf8), .concealedMarker: Data()]]
+        XCTAssertTrue(TextInserter.restorableItems(mixed).isEmpty)
+    }
+
+    // MARK: scratch-that caret check
+
+    func testScratchRefusedWhenCaretMovedSinceAXInsertion() throws {
+        let inserter = makeInserter(axSucceeds: true)
+        axSnapshotAfterInsert = .init(characterCount: 20, selectedRange: (20, 0))
+        try inserter.insert("hello there", target: 42)
+        axSnapshotNow = .init(characterCount: 20, selectedRange: (3, 0))
+        XCTAssertThrowsError(try inserter.deleteBackward(11, target: 42)) { error in
+            XCTAssertEqual(error as? InternosError, .scratchTargetChanged)
+        }
+        XCTAssertTrue(backspacesPosted.isEmpty, "nothing may be deleted behind a moved caret")
+    }
+
+    func testScratchRefusedWhenTextChangedSinceAXInsertion() throws {
+        let inserter = makeInserter(axSucceeds: true)
+        axSnapshotAfterInsert = .init(characterCount: 20, selectedRange: (20, 0))
+        try inserter.insert("hello there", target: 42)
+        axSnapshotNow = .init(characterCount: 25, selectedRange: (25, 0)) // the user typed on
+        XCTAssertThrowsError(try inserter.deleteBackward(11, target: 42))
+        XCTAssertTrue(backspacesPosted.isEmpty)
+    }
+
+    func testScratchProceedsWhenCaretUnchanged() throws {
+        let inserter = makeInserter(axSucceeds: true)
+        axSnapshotAfterInsert = .init(characterCount: 20, selectedRange: (20, 0))
+        try inserter.insert("hello there", target: 42)
+        axSnapshotNow = axSnapshotAfterInsert
+        try inserter.deleteBackward(11, target: 42)
+        XCTAssertEqual(backspacesPosted, [11])
+    }
+
+    func testScratchProceedsWhenNothingIsReadable() throws {
+        // Unreadable now (focus moved to an element without text attributes, or the
+        // snapshot after the insertion was empty): inconclusive, same-app check only.
+        let inserter = makeInserter(axSucceeds: true)
+        axSnapshotAfterInsert = .init(characterCount: 20, selectedRange: (20, 0))
+        try inserter.insert("hello there", target: 42)
+        axSnapshotNow = TextInserter.AXTextSnapshot()
+        try inserter.deleteBackward(11, target: 42)
+        XCTAssertEqual(backspacesPosted, [11])
+    }
+
+    func testScratchAfterClipboardPasteHasNoCaretCheck() throws {
+        let inserter = makeInserter(axSucceeds: false)
+        try inserter.insert("hello there", target: 42)
+        axSnapshotNow = .init(characterCount: 1, selectedRange: (0, 0))
+        try inserter.deleteBackward(11, target: 42)
+        XCTAssertEqual(backspacesPosted, [11])
+    }
+
+    func testScratchCheckIsOneShot() throws {
+        let inserter = makeInserter(axSucceeds: true)
+        axSnapshotAfterInsert = .init(characterCount: 20, selectedRange: (20, 0))
+        try inserter.insert("hello there", target: 42)
+        axSnapshotNow = axSnapshotAfterInsert
+        try inserter.deleteBackward(11, target: 42)
+        axSnapshotNow = .init(characterCount: 9, selectedRange: (2, 0))
+        try inserter.deleteBackward(1, target: 42) // the controller never does this; the inserter must not refuse on a stale record
+        XCTAssertEqual(backspacesPosted, [11, 1])
     }
 }

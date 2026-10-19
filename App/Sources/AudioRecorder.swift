@@ -36,16 +36,20 @@ final class AudioRecorder: RecordingSource {
 
         if let deviceUID, var deviceID = AudioDevices.deviceID(forUID: deviceUID) {
             // Route the engine's input to the chosen device (default is the system input).
-            let status = AudioUnitSetProperty(
-                input.audioUnit!,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &deviceID,
-                UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-            if status != noErr {
-                NSLog("Internos: input device selection failed (\(status)), using default")
+            if let unit = input.audioUnit {
+                let status = AudioUnitSetProperty(
+                    unit,
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global,
+                    0,
+                    &deviceID,
+                    UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                if status != noErr {
+                    NSLog("Internos: input device selection failed (\(status)), using default")
+                }
+            } else {
+                NSLog("Internos: input node has no audio unit, using default input device")
             }
         }
         let hwFormat = input.inputFormat(forBus: 0)
@@ -113,18 +117,4 @@ final class AudioRecorder: RecordingSource {
         continuation?.finish()
         continuation = nil
     }
-}
-
-enum InternosError: Error, Equatable {
-    case audioConverterUnavailable
-    case analyzerFormatUnavailable
-    case modelNotInstalled
-    case secureInputActive
-    case accessibilityNotGranted
-    /// The app frontmost at insertion time is not the one that owned the cursor when
-    /// recording stopped (or that app exited). Distinct from Secure Input/Accessibility
-    /// failures so logs and handling don't conflate them.
-    case insertionTargetChanged
-    /// CGEvent construction for the synthetic ⌘V failed; nothing was posted.
-    case pasteEventFailed
 }

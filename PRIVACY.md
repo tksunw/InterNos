@@ -29,6 +29,8 @@ Internos inserts text directly into the focused field through the macOS Accessib
 
 When an app doesn't support direct insertion, Internos falls back to a clipboard swap: it briefly places the transcript on the general pasteboard, pastes it, and restores your previous clipboard contents about a third of a second later (unless you copied something new in that window — a newer copy is never overwritten). While the transcript is on the pasteboard, it is visible to anything on your system that watches the clipboard: macOS features like Universal Clipboard may sync it to your other devices, and installed clipboard managers may record it. That is how the macOS pasteboard works and is outside Internos's control. Internos tags the entry with the standard `org.nspasteboard` transient and concealed marker types, which ask clipboard tools to skip or conceal it; well-behaved managers honor these markers, but they are a convention, not a guarantee.
 
+If what was on your clipboard before dictation was itself a concealed entry (the way password managers mark a copied password), Internos does not put it back after the paste; it clears the clipboard instead. Writing it back would hand the secret a fresh clipboard entry that the password manager's own timed clear may no longer recognise as its own.
+
 ## Command mode and selected text
 
 Command mode rewrites text you have selected, using the same on-device Apple Intelligence model as smart cleanup. Internos reads your selected text **only when you hold the command key to give a command** — an explicit, deliberate invocation — and sends it, with your spoken instruction, to the on-device model. It is never read in the background, never used as ambient context for dictation, never logged, and never transmitted. If the rewrite fails for any reason, your selection is left untouched.
@@ -45,6 +47,8 @@ Two cases, neither in the dictation path, neither carrying any of your data (sma
 ## Permissions
 
 Internos asks for three macOS permissions, used solely for the functions named: Microphone (capturing your voice while dictating), Input Monitoring (detecting the hotkey), and Accessibility (inserting text at your cursor). None of these are used for anything else.
+
+The three actions Internos offers to the Shortcuts app (Toggle Dictation, Paste Last Dictation, Set Cleanup Level) do what their menu and hotkey equivalents do, and nothing more: none of them returns dictated text to Shortcuts or to any other app. Anything that can run your shortcuts can start a dictation or paste the last one; both are as visible and audible as doing it by hand.
 
 The hotkey watch sees modifier keys only. To tell a command-key hold from an ordinary shortcut such as ⌘C, Internos also reads macOS's running count of key presses, mouse clicks and mouse drags. The count says that something was pressed, never which key or where; it is compared and discarded, not stored or logged.
 

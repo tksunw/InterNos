@@ -1,6 +1,8 @@
-// Internos — MVP core loop (PRD §12 milestone 2).
-// Hold Right Option → record → release → transcribe on-device → insert at cursor.
-// Hardcoded hotkey, no settings UI yet. Menu bar shell arrives in milestone 3.
+// Entry point. Menu-bar-only app (accessory activation policy, LSUIElement):
+// AppDelegate builds the one DictationController, which wires the hotkey,
+// recorder, engine, pipeline, inserter and UI together and runs setup.
+// DictationController.current exists for App Intents, which the system runs
+// in-process with no route to this delegate.
 
 import AppKit
 

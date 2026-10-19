@@ -562,13 +562,18 @@ final class DictationController {
         }
     }
 
+    /// The dictation a command recording cut in on has finished: there is no
+    /// longer a UI to hand back to it if that command is canceled.
+    private func markCompleted(_ gen: Int) {
+        if finalizingBeforeCommand == gen { finalizingBeforeCommand = nil }
+    }
+
     /// How a completion reports its outcome. A newer recording owns the icon,
     /// indicator, and sounds; a superseded completion still inserts (in order)
     /// but stays silent and invisible (IR-001). Ownership is decided here, when
     /// the completion starts, not when it gets round to reporting.
     private func uiUpdater(for gen: Int) -> (AppState, String?) -> Void {
         let isCurrent = gen == uiOwner
-        if finalizingBeforeCommand == gen { finalizingBeforeCommand = nil } // it has completed
         return { [self] uiState, sound in
             guard isCurrent else { return }
             indicator.hide()
@@ -594,6 +599,7 @@ final class DictationController {
             }
             return
         }
+        markCompleted(gen)
         let updateUI = uiUpdater(for: gen)
 
         switch result {
@@ -745,6 +751,7 @@ final class DictationController {
         transformed: String?, instructionHeard: Bool
     ) {
         guard epoch == pauseEpoch else { return } // paused: change nothing (IR-004 semantics)
+        markCompleted(gen)
         let updateUI = uiUpdater(for: gen)
 
         guard instructionHeard, let transformed else {

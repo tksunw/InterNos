@@ -22,13 +22,19 @@ protocol ModelInstallationRequest: Sendable {
 }
 
 struct SpeechModelAssetStore: ModelAssetInstalling {
+    /// The setup window serves whatever language is selected right now; a
+    /// change mid-setup is handled by the controller, not here.
+    private func transcriber() -> SpeechTranscriber {
+        TranscriptionEngine().makeTranscriber(locale: TranscriptionEngine.selectedLocale)
+    }
+
     func status() async -> AssetInventory.Status {
-        await AssetInventory.status(forModules: [TranscriptionEngine().makeTranscriber()])
+        await AssetInventory.status(forModules: [transcriber()])
     }
 
     func installationRequest() async throws -> (any ModelInstallationRequest)? {
         guard let request = try await AssetInventory.assetInstallationRequest(
-            supporting: [TranscriptionEngine().makeTranscriber()]) else { return nil }
+            supporting: [transcriber()]) else { return nil }
         return RequestBox(progress: request.progress) { try await request.downloadAndInstall() }
     }
 

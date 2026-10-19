@@ -32,7 +32,9 @@ final class TranscriptionEngine: TranscriptionProviding, Sendable {
     }
 
     /// Volatile results feed the live preview; finalized results build the transcript.
-    func makeTranscriber(locale: Locale = TranscriptionEngine.selectedLocale) -> SpeechTranscriber {
+    /// The locale is always the caller's: a default that read Settings here would
+    /// undo the pinning the controller does per setup and per utterance.
+    func makeTranscriber(locale: Locale) -> SpeechTranscriber {
         SpeechTranscriber(
             locale: locale,
             transcriptionOptions: [],

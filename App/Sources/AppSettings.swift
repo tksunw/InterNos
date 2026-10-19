@@ -5,11 +5,12 @@ import CoreGraphics
 import Foundation
 import ServiceManagement
 
-/// Shared with `TranscriptionEngine.selectedLocale`, which reads UserDefaults
-/// directly (it can't touch the MainActor-bound AppSettings).
+// Two keys live outside AppSettings.Key because code that can't reach the
+// MainActor-bound AppSettings reads them straight from UserDefaults:
+// `TranscriptionEngine.selectedLocale` (nonisolated) and the Settings picker's
+// @AppStorage binding. Every other key stays in `Key`.
 let recognitionLocaleKey = "recognitionLocale"
 let recognitionLocaleDefault = "en_US"
-/// Shared with the Settings picker, which binds to the stored value directly.
 let cleanupModeKey = "cleanupMode"
 /// What an unset key means, here and in the picker. Off — intentional for 2.0
 /// (decided 2026-07-15), see `AppSettings.cleanupMode`.
@@ -72,6 +73,7 @@ final class AppSettings {
 
     private enum Key {
         static let hotkey = "hotkeyKeyCode"
+        static let commandHotkey = "commandHotkeyKeyCode"
         static let mode = "activationMode"
         static let inputDeviceUID = "inputDeviceUID"
         static let playSounds = "playSounds"
@@ -91,10 +93,10 @@ final class AppSettings {
     /// dictation key; Settings surfaces the collision.
     var commandHotkey: HotkeyChoice {
         get {
-            guard let raw = defaults.object(forKey: "commandHotkeyKeyCode") as? Int else { return .rightCommand }
+            guard let raw = defaults.object(forKey: Key.commandHotkey) as? Int else { return .rightCommand }
             return HotkeyChoice(rawValue: Int64(raw)) ?? .rightCommand
         }
-        set { defaults.set(Int(newValue.rawValue), forKey: "commandHotkeyKeyCode") }
+        set { defaults.set(Int(newValue.rawValue), forKey: Key.commandHotkey) }
     }
 
     /// Recognition language (v2 multi-language). Spoken commands remain English.

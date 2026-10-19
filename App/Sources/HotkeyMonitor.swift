@@ -116,6 +116,19 @@ final class HotkeyMonitor: HotkeyMonitoring {
         self.schedule = schedule
     }
 
+    /// The tap callback holds `self` unretained (`start`), so the tap must not
+    /// outlive the monitor. The controller keeps the monitor for the whole
+    /// process today; this makes that safe by construction, not by convention.
+    isolated deinit {
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+    }
+
     /// Key presses, clicks and drags since login, from the session's event
     /// counters: the deliberate things a held modifier can be a shortcut with. Scrolling is left
     /// out on purpose. Trackpad momentum and a finger resting on a Magic Mouse

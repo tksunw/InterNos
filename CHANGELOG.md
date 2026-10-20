@@ -6,6 +6,8 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-10-19
+
 ### Changed
 - If the clipboard held a concealed entry (a password manager's copy) before a
   clipboard-path insertion, Internos now clears the clipboard after the paste
@@ -390,7 +392,8 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
-[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/tksunw/InterNos/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/tksunw/InterNos/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/tksunw/InterNos/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/tksunw/InterNos/compare/v2.1.2...v2.2.0

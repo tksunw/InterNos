@@ -6,6 +6,8 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-31
+
 ### Added
 - Spelling setting (Settings → General, next to Language): As recognized,
   American, British, British (Oxford), Canadian or Australian. Dictate with
@@ -403,7 +405,8 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
-[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/tksunw/InterNos/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/tksunw/InterNos/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/tksunw/InterNos/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/tksunw/InterNos/compare/v2.2.0...v2.2.1

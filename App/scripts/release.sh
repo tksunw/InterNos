@@ -113,7 +113,11 @@ APPCAST_STAGE="$DIR/build/appcast-stage"
 rm -rf "$APPCAST_STAGE"
 mkdir -p "$APPCAST_STAGE"
 cp "$DMG" "$APPCAST_STAGE/"
+# --maximum-versions 0: keep every item. The default (3 per branch point, and
+# each minimumSystemVersion is a branch point) silently dropped 2.2.0 at the
+# 2.3.1 release and 2.2.x at 2.4.0; both were restored by hand.
 "$SPARKLE_BIN/generate_appcast" \
+    --maximum-versions 0 \
     --download-url-prefix "https://github.com/$REPO_SLUG/releases/download/v$VERSION/" \
     --link "https://github.com/$REPO_SLUG/releases" \
     -o "$REPO/appcast.xml" "$APPCAST_STAGE"

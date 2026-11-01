@@ -3,6 +3,15 @@
     <channel>
         <title>Internos</title>
         <item>
+            <title>2.4.1</title>
+            <pubDate>Sat, 31 Oct 2026 23:26:03 -0400</pubDate>
+            <link>https://github.com/tksunw/InterNos/releases</link>
+            <sparkle:version>32</sparkle:version>
+            <sparkle:shortVersionString>2.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/tksunw/InterNos/releases/download/v2.4.1/Internos-2.4.1.dmg" length="3266309" type="application/octet-stream" sparkle:edSignature="/eVCYqoeGX8DVw9YeIl2iuT04+acfnX4gqtLWSvsSnWjbJxVjXOWVDThCXBYPx0Wp3KIU8Rez5FwwaWV/fF7Bg=="/>
+        </item>
+        <item>
             <title>2.4.0</title>
             <pubDate>Sat, 31 Oct 2026 22:55:36 -0400</pubDate>
             <link>https://github.com/tksunw/InterNos/releases</link>

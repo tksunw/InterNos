@@ -247,6 +247,8 @@ nav.toc a:hover { text-decoration: underline; }
 <p><strong>Command mode says "Select some text first" although text is selected.</strong> The frontmost app doesn't expose its selection to macOS accessibility. Most native apps do; some Electron apps and browsers don't. Try it in TextEdit to confirm command mode itself works.</p>
 <p><strong>Snippet or replacement doesn't fire.</strong> Check it's enabled in Customizations, and say the name the way you defined it. For spelled-letter names, variants are matched automatically.</p>
 <p><strong>Cleanup does nothing.</strong> Check the level in Settings → Processing — it ships <strong>Off</strong>, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 500 characters, intentionally get filler removal only.</p>
+<p><strong>Getting a log for a bug report.</strong> Internos writes short diagnostic lines to the macOS system log: what happened (recording started, cleanup applied or fell back, inserted, refused), timings, character counts and error types. Never the words you dictated. In Terminal:</p>
+<pre><code>log show --predicate 'subsystem == "net.timkennedy.internos"' --last 1h</code></pre>
 <p><strong>After an update, old bugs are still there.</strong> Quit and relaunch: replacing the app in Applications does not restart the running copy. Check the version via the About panel.</p>
 
 <h2 id="privacy">Privacy in one paragraph</h2>

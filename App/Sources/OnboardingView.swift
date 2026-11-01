@@ -150,7 +150,7 @@ final class OnboardingModel: ObservableObject {
                     modelState = .failed("The model isn't installed yet. Try again in a moment.")
                 }
             } catch {
-                NSLog("Internos: model download failed: \(error)")
+                Log.error("model download failed: \(error)")
                 modelState = .failed("Download failed: \(error.localizedDescription)")
             }
         }

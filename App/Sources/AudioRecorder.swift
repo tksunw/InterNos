@@ -46,14 +46,14 @@ final class AudioRecorder: RecordingSource {
                     UInt32(MemoryLayout<AudioDeviceID>.size)
                 )
                 if status != noErr {
-                    NSLog("Internos: input device selection failed (\(status)), using default")
+                    Log.error("input device selection failed (\(status)), using default")
                 }
             } else {
-                NSLog("Internos: input node has no audio unit, using default input device")
+                Log.info("input node has no audio unit, using default input device")
             }
         }
         let hwFormat = input.inputFormat(forBus: 0)
-        NSLog("Internos: mic format \(hwFormat.sampleRate) Hz \(hwFormat.channelCount) ch")
+        Log.info("mic format \(hwFormat.sampleRate) Hz \(hwFormat.channelCount) ch")
         guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
             throw InternosError.audioConverterUnavailable
         }

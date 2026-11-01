@@ -227,7 +227,7 @@ final class DictationController {
         case .success(let format):
             analyzer = (format, locale)
         case .failure(let error):
-            NSLog("Internos: model setup failed: \(error)")
+            Log.error("model setup failed: \(error)")
             enterSetupFailed()
             return
         }
@@ -240,7 +240,7 @@ final class DictationController {
         if !hotkeyStarted && !hotkey.start() {
             // Input Monitoring granted after launch doesn't reach an existing process;
             // the onboarding window offers a restart in this state.
-            NSLog("Internos: event tap creation failed — restart needed after Input Monitoring grant")
+            Log.error("event tap creation failed — restart needed after Input Monitoring grant")
             tapFailed = true
             enterSetupFailed()
             // Not behind a menu that says paused; the failure icon shows on resume
@@ -248,7 +248,7 @@ final class DictationController {
             if state != .paused { showOnboarding() }
         } else {
             hotkeyStarted = true
-            NSLog("Internos: ready")
+            Log.info("ready")
             pipelineReady = true
             statusItem.refreshHotkeyHint()
             // Paused while setup was in flight: stay paused. Resume reads `pipelineReady`.
@@ -281,7 +281,7 @@ final class DictationController {
         // restarting setup would only take the failure indicator down (IR-007).
         guard let current = setupLocaleIdentifier, selected.identifier != current, !tapFailed,
               state == .idle || state == .setupFailed || state == .settingUp else { return }
-        NSLog("Internos: recognition language changed — reinitializing pipeline")
+        Log.info("recognition language changed — reinitializing pipeline")
         beginSetup(for: selected)
     }
 
@@ -469,7 +469,7 @@ final class DictationController {
     private func copyLastDictation(raw: Bool) {
         guard let value = volatileStore.current else { return }
         inserter.preserveOnClipboard(raw ? value.raw : value.final)
-        NSLog("Internos: last dictation copied (\(raw ? "raw" : "final"))")
+        Log.info("last dictation copied (\(raw ? "raw" : "final"))")
     }
 
     /// User-initiated re-insertion of the stored final value: same serialized
@@ -483,7 +483,7 @@ final class DictationController {
             guard controller.pauseEpoch == epoch else { return }
             do {
                 try controller.inserter.insert(value.final, target: target)
-                NSLog("Internos: last dictation pasted")
+                Log.info("last dictation pasted")
                 controller.lastInsertion = (value.final.count, target)
                 controller.playSound("Purr")
             } catch {
@@ -498,10 +498,10 @@ final class DictationController {
 
     func beginUtterance() {
         guard state == .idle || state == .finalizing, let (format, locale) = analyzer else {
-            NSLog("Internos: keyDown ignored (state not ready for recording)")
+            Log.info("keyDown ignored (state not ready for recording)")
             return
         }
-        NSLog("Internos: recording started")
+        Log.info("recording started")
         do {
             let stream = try recorder.start(analyzerFormat: format, deviceUID: AppSettings.shared.inputDeviceUID)
             utteranceGeneration += 1
@@ -521,7 +521,7 @@ final class DictationController {
             indicator.show(.recording)
             playSound("Pop")
         } catch {
-            NSLog("Internos: audio start failed: \(error)")
+            Log.error("audio start failed: \(error)")
             statusItem.setState(.error)
             indicator.hide()
             playSound("Basso")
@@ -539,7 +539,7 @@ final class DictationController {
         guard state == .recording, let (task, localeIdentifier) = utterance else { return }
         utterance = nil
         recorder.stop() // finishes the stream → analyzer sees end of input
-        NSLog("Internos: recording stopped, finalizing")
+        Log.info("recording stopped, finalizing")
         state = .finalizing
         statusItem.setState(.transcribing)
         indicator.show(.transcribing)
@@ -602,7 +602,7 @@ final class DictationController {
                 // The user may paste it by hand, after which the cursor no longer
                 // sits behind the older insertion a "scratch that" would delete.
                 lastInsertion = nil
-                NSLog("Internos: canceled by pause — transcript preserved on clipboard, not inserted")
+                Log.info("canceled by pause — transcript preserved on clipboard, not inserted")
             }
             return
         }
@@ -611,7 +611,7 @@ final class DictationController {
 
         switch result {
         case .success(let transcript) where transcript.final.isEmpty:
-            NSLog("Internos: empty transcript")
+            Log.info("empty transcript")
             updateUI(.error, "Basso")
         case .success(let transcript)
             where Self.isScratchCommand(transcript.raw, localeIdentifier: localeIdentifier):
@@ -620,13 +620,13 @@ final class DictationController {
         case .success(let transcript):
             // Log length only — never the content. Writing transcripts to the unified
             // log (persistent, readable) would contradict the app's whole premise.
-            NSLog("Internos: transcript finalized (\(transcript.final.count) chars, cleanup: \(transcript.cleanupApplied))")
+            Log.info("transcript finalized (\(transcript.final.count) chars, cleanup: \(transcript.cleanupApplied))")
             // Recorded before the first insertion attempt (feature 2): every failure
             // path below still leaves the transcript recoverable from the menu.
             volatileStore.record(raw: transcript.raw, final: transcript.final, cleanupApplied: transcript.cleanupApplied)
             do {
                 let method = try inserter.insert(transcript.final, target: target)
-                NSLog("Internos: inserted (\(method == .accessibility ? "accessibility" : "clipboard"))")
+                Log.info("inserted (\(method == .accessibility ? "accessibility" : "clipboard"))")
                 lastInsertion = (transcript.final.count, target)
                 updateUI(.idle, "Purr")
             } catch {
@@ -634,7 +634,7 @@ final class DictationController {
                 updateUI(.error, "Basso")
             }
         case .failure(let error):
-            NSLog("Internos: utterance failed: \(error)")
+            Log.error("utterance failed: \(error)")
             updateUI(.error, "Basso")
         }
     }
@@ -651,12 +651,12 @@ final class DictationController {
         pendingCommandFailure = nil
         guard state == .idle || state == .finalizing, let (format, locale) = analyzer else { return }
         guard commandModeAvailable() else {
-            NSLog("Internos: command mode unavailable (Apple Intelligence)")
+            Log.info("command mode unavailable (Apple Intelligence)")
             pendingCommandFailure = "Command mode needs Apple Intelligence,\nwhich isn't available on this Mac."
             return
         }
         guard let selection = selectionProvider() else {
-            NSLog("Internos: command mode — no selected text in the focused element")
+            Log.info("command mode — no selected text in the focused element")
             pendingCommandFailure = "Select some text first, then hold the\ncommand key and speak an instruction."
             return
         }
@@ -674,9 +674,9 @@ final class DictationController {
             statusItem.setState(.recording)
             indicator.show(.recording)
             playSound("Pop")
-            NSLog("Internos: command mode recording (selection \(selection.text.count) chars)")
+            Log.info("command mode recording (selection \(selection.text.count) chars)")
         } catch {
-            NSLog("Internos: command mode audio start failed: \(error)")
+            Log.error("command mode audio start failed: \(error)")
             commandContext = nil
             statusItem.setState(.error)
             indicator.hide()
@@ -692,7 +692,7 @@ final class DictationController {
         pendingCommandFailure = nil
         guard state == .commandRecording, utterance != nil else { return }
         abandonRecording()
-        NSLog("Internos: command mode canceled (shortcut)")
+        Log.info("command mode canceled (shortcut)")
         let interruptedInstruction = commandRecordingStarted.map { .now - $0 >= quietCancelWindow } ?? false
         if interruptedInstruction { playSound("Basso") }
         if let interrupted = finalizingBeforeCommand {
@@ -764,7 +764,7 @@ final class DictationController {
         guard instructionHeard, let transformed else {
             // Unavailable model, timeout, refusal, empty instruction: the selection is
             // untouched — fail loud, change nothing.
-            NSLog("Internos: command mode produced no transformation")
+            Log.info("command mode produced no transformation")
             updateUI(.error, "Basso")
             return
         }
@@ -774,7 +774,7 @@ final class DictationController {
             // Replacing the selection is the same primitive as insertion: the AX path
             // sets selected text; the paste fallback replaces the selection natively.
             let method = try inserter.insert(transformed, target: context.target)
-            NSLog("Internos: command replacement inserted (\(method == .accessibility ? "accessibility" : "clipboard"))")
+            Log.info("command replacement inserted (\(method == .accessibility ? "accessibility" : "clipboard"))")
             lastInsertion = (transformed.count, context.target)
             updateUI(.idle, "Purr")
         } catch {
@@ -821,18 +821,18 @@ final class DictationController {
 
     private func performScratch(updateUI: (AppState, String?) -> Void) {
         guard let last = lastInsertion, last.characterCount <= Self.maxScratchCharacters else {
-            NSLog("Internos: scratch that ignored (nothing to scratch or too long)")
+            Log.info("scratch that ignored (nothing to scratch or too long)")
             updateUI(.error, "Basso")
             return
         }
         do {
             try inserter.deleteBackward(last.characterCount, target: last.target)
-            NSLog("Internos: scratched last insertion (\(last.characterCount) chars)")
+            Log.info("scratched last insertion (\(last.characterCount) chars)")
             lastInsertion = nil // one-shot: a second scratch must not eat older text
             updateUI(.idle, "Purr")
         } catch {
             // Wrong app frontmost, Secure Input, etc. — delete nothing, fail loud.
-            NSLog("Internos: scratch failed: \(error)")
+            Log.error("scratch failed: \(error)")
             updateUI(.error, "Basso")
         }
     }
@@ -846,18 +846,18 @@ final class DictationController {
         switch error {
         case InternosError.secureInputActive:
             inserter.preserveOnClipboard(transcript)
-            NSLog("Internos: Secure Input active — transcript left on clipboard, not inserted")
+            Log.error("Secure Input active — transcript left on clipboard, not inserted")
         case InternosError.insertionTargetChanged:
             inserter.preserveOnClipboard(transcript)
-            NSLog("Internos: frontmost app changed during finalization — transcript left on clipboard, not inserted")
+            Log.error("frontmost app changed during finalization — transcript left on clipboard, not inserted")
         case InternosError.accessibilityNotGranted:
             inserter.preserveOnClipboard(transcript)
-            NSLog("Internos: Accessibility not granted — transcript left on clipboard, not inserted")
+            Log.error("Accessibility not granted — transcript left on clipboard, not inserted")
         case InternosError.pasteEventFailed:
             // The inserter already left the transcript on the pasteboard with no restore scheduled.
-            NSLog("Internos: paste event creation failed — transcript left on clipboard")
+            Log.error("paste event creation failed — transcript left on clipboard")
         default:
-            NSLog("Internos: insertion failed: \(error)")
+            Log.error("insertion failed: \(error)")
         }
     }
 }

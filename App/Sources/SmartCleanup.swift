@@ -145,7 +145,7 @@ struct FoundationModelCleaner: SmartCleaning {
         } catch {
             // Refusals, guardrails, context exhaustion, cancellation: soft failure.
             // Log the error type only — messages could echo prompt content.
-            NSLog("Internos: cleanup model error (\(type(of: error)))")
+            Log.error("cleanup model error (\(type(of: error)))")
             return nil
         }
     }
@@ -179,7 +179,7 @@ struct SmartCleanupCoordinator: SmartCleaning {
     func clean(_ text: String, mode: CleanupMode) async -> String? {
         guard mode != .off, !text.isEmpty else { return nil }
         guard text.count <= Self.maxInputLength else {
-            NSLog("Internos: cleanup skipped, input too long (\(text.count) chars)")
+            Log.info("cleanup skipped, input too long (\(text.count) chars)")
             return nil
         }
         let start = ContinuousClock.now
@@ -188,10 +188,10 @@ struct SmartCleanupCoordinator: SmartCleaning {
         }
         let elapsed = ContinuousClock.now - start
         guard let raw, let validated = Self.validate(raw, input: text) else {
-            NSLog("Internos: cleanup fallback (mode \(mode.rawValue), \(elapsed), \(text.count) chars in)")
+            Log.info("cleanup fallback (mode \(mode.rawValue), \(elapsed), \(text.count) chars in)")
             return nil
         }
-        NSLog("Internos: cleanup applied (mode \(mode.rawValue), \(elapsed), \(text.count) → \(validated.count) chars)")
+        Log.info("cleanup applied (mode \(mode.rawValue), \(elapsed), \(text.count) → \(validated.count) chars)")
         return validated
     }
 

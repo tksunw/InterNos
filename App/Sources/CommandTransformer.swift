@@ -59,7 +59,7 @@ struct FoundationModelTransformer: TextTransforming {
                 options: GenerationOptions(samplingMode: .greedy)
             ).content
         } catch {
-            NSLog("Internos: command transform model error (\(type(of: error)))")
+            Log.error("command transform model error (\(type(of: error)))")
             return nil
         }
     }
@@ -77,7 +77,7 @@ struct CommandTransformCoordinator: TextTransforming {
     func transform(_ text: String, instruction: String) async -> String? {
         guard !text.isEmpty, !instruction.isEmpty else { return nil }
         guard text.count <= Self.maxInputLength else {
-            NSLog("Internos: command transform skipped, selection too long (\(text.count) chars)")
+            Log.info("command transform skipped, selection too long (\(text.count) chars)")
             return nil
         }
         let start = ContinuousClock.now
@@ -86,10 +86,10 @@ struct CommandTransformCoordinator: TextTransforming {
         }
         let elapsed = ContinuousClock.now - start
         guard let raw, let validated = Self.validate(raw, input: text) else {
-            NSLog("Internos: command transform fallback (\(elapsed), \(text.count) chars in)")
+            Log.info("command transform fallback (\(elapsed), \(text.count) chars in)")
             return nil
         }
-        NSLog("Internos: command transform ok (\(elapsed), \(text.count) → \(validated.count) chars)")
+        Log.info("command transform ok (\(elapsed), \(text.count) → \(validated.count) chars)")
         return validated
     }
 

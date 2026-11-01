@@ -209,6 +209,12 @@ Replacements and snippets: search, add, edit, enable or disable, delete, and Imp
 
 **Cleanup does nothing.** Check the level in Settings → Processing — it ships **Off**, so a fresh install inserts every "um" exactly as you said it. If the level is Light or Polished and fillers still survive, check that the recognition language is English. Utterances containing snippets or commands, and utterances over roughly 500 characters, intentionally get filler removal only.
 
+**Getting a log for a bug report.** Internos writes short diagnostic lines to the macOS system log: what happened (recording started, cleanup applied or fell back, inserted, refused), timings, character counts and error types. Never the words you dictated. In Terminal:
+
+```
+log show --predicate 'subsystem == "net.timkennedy.internos"' --last 1h
+```
+
 **After an update, old bugs are still there.** If you updated via Check for Updates, the app already relaunched; check the version via the About panel. If you replaced the app in Applications manually, quit and relaunch: replacing the file does not restart the running copy.
 
 ## Privacy in one paragraph

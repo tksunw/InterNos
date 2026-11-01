@@ -6,7 +6,7 @@ Internos is built on one premise: your voice is processed entirely on your Mac, 
 
 - All speech processing happens on-device, using Apple's Speech framework.
 - Audio is never recorded to disk, transmitted, or retained. It exists only in memory during an utterance.
-- Transcripts are never stored, logged, or transmitted by Internos. To insert text, the transcript briefly passes through the macOS general pasteboard (see "The clipboard" below), which other clipboard-aware software on your system can observe.
+- Transcripts are never stored, logged, or transmitted by Internos. The app's diagnostic log (the macOS unified log, readable with `log show`) records events, timings, character counts and error types only, never dictated, selected or clipboard text. To insert text, the transcript briefly passes through the macOS general pasteboard (see "The clipboard" below), which other clipboard-aware software on your system can observe.
 - There is no telemetry, no analytics, no crash reporting, no accounts, and no data collection of any kind.
 - Internos makes zero network calls in the dictation path. You can verify this with Little Snitch or any packet monitor.
 

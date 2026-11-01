@@ -501,7 +501,7 @@ final class TextInserter: TextInserting {
         }
         let after = textSnapshot(of: element)
         guard axWriteTookEffect(before: before, after: after) else {
-            NSLog("Internos: AX insertion reported success but the element did not change — falling back to clipboard")
+            Log.info("AX insertion reported success but the element did not change — falling back to clipboard")
             return nil
         }
         return after

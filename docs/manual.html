@@ -215,6 +215,10 @@ nav.toc a:hover { text-decoration: underline; }
 <p><strong>Settings → General → Language</strong> lists every language the on-device recognizer supports. Switching may trigger a one-time system download of that language's speech model.</p>
 <p>What changes with a non-English language: recognition and the scratch phrase are localized; spoken commands (new line, snippet, emoji names) remain English; smart cleanup does not run (text is inserted exactly as recognized).</p>
 
+<h3 id="spelling">Spelling</h3>
+<p>Each English model writes its own country's spelling: pick en_AU for your accent and you get "colour" and "organise". <strong>Settings → General → Spelling</strong> separates the two choices. Leave it on As recognized (the default) and nothing changes. Pick American, British, British (Oxford), Canadian or Australian and dictated text is rewritten into that spelling, whatever model produced it, using a fixed on-device word table (VarCon, from the SCOWL project). Snippets, personal-dictionary output and command-mode rewrites are never re-spelled.</p>
+<p>Two deliberate limits. Words that are a different word in the target spelling are left alone rather than guessed: under a British target, "check", "program", "meter", "story", "tire" and "curb" stay as recognized because each is also a British word (cheque vs check, programme vs computer program). And a capitalized word mid-sentence is treated as a proper noun and kept ("Harbour Bridge", "Centrelink"); a capitalized word at the start of a sentence is converted, so "Labor won" at the start of a sentence becomes "Labour won" under a British target. The setting is English only: with a non-English recognition language it is disabled and dictation is inserted as recognized.</p>
+
 <h2 id="settings">Settings reference</h2>
 
 <h3>General</h3>
@@ -225,6 +229,7 @@ nav.toc a:hover { text-decoration: underline; }
 <tr><td>Command key</td><td>The command mode key. Must differ from the dictation key</td></tr>
 <tr><td>Microphone</td><td>Which input device to record from</td></tr>
 <tr><td>Language</td><td>Recognition language</td></tr>
+<tr><td>Spelling</td><td>Written English spelling: As recognized (default), American, British, British (Oxford), Canadian, Australian. English recognition languages only</td></tr>
 <tr><td>Play sounds</td><td>Start/success/error sounds</td></tr>
 <tr><td>Launch at login</td><td>Start Internos when you log in</td></tr>
 <tr><td>Check for updates at launch</td><td>Off by default. When on, one request to GitHub at startup; this is the only automatic network call Internos can make</td></tr>

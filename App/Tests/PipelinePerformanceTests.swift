@@ -33,4 +33,23 @@ final class PipelinePerformanceTests: XCTestCase {
         XCTAssertLessThan(elapsed, .milliseconds(100), "deterministic processing too slow: \(elapsed)")
         print("Internos perf: 4000-char deterministic pipeline took \(elapsed)")
     }
+
+    func testSpellingNormalizationSpeed() async {
+        let paragraph = "The color of the harbor at the center of town organized itself around a gray program of labor, humor and flavor. "
+        var raw = ""
+        while raw.count < 4000 { raw += paragraph }
+        raw = String(raw.prefix(4000))
+        let settings = ProcessingSettings(cleanupMode: .off, spelling: .british, replacements: .empty, snippets: .empty)
+
+        let pipeline = TranscriptPipeline()
+        _ = await pipeline.process(raw, settings: settings) // warm-up, includes the one-time table parse
+
+        let start = ContinuousClock.now
+        let result = await pipeline.process(raw, settings: settings)
+        let elapsed = ContinuousClock.now - start
+
+        XCTAssertTrue(result.final.contains("colour") && result.final.contains("program"), result.final)
+        XCTAssertLessThan(elapsed, .milliseconds(100), "spelling normalization too slow: \(elapsed)")
+        print("Internos perf: 4000-char British spelling pass took \(elapsed)")
+    }
 }

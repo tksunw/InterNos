@@ -6,6 +6,17 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Spelling setting (Settings → General, next to Language): As recognized,
+  American, British, British (Oxford), Canadian or Australian. Dictate with
+  whichever English model fits your accent and have the text written in the
+  spelling you want. Deterministic and on-device, built from VarCon (SCOWL).
+  Off ("As recognized") by default; English recognition languages only.
+  Personal-dictionary output, snippets and command-mode rewrites are never
+  re-spelled; proper nouns mid-sentence are left alone. Ambiguous pairs
+  (check/cheque, program/programme, tire/tyre under a British target) are left
+  as recognized rather than guessed.
+
 ## [2.3.1] - 2026-10-19
 
 ### Changed

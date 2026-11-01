@@ -1,5 +1,5 @@
 // Staged transcript processing (feature handoff, processing architecture):
-//   raw speech → command parser → [smart cleanup] → user replacements → renderer → final text.
+//   raw speech → command parser → [smart cleanup] → spelling → user replacements → renderer → final text.
 //
 // Protected segments are the privacy/correctness backbone: snippet contents, literal
 // escapes, and replacement outputs are never re-parsed, never re-replaced, and never
@@ -46,6 +46,7 @@ protocol SmartCleaning: Sendable {
 /// settings layout).
 struct ProcessingSettings: Sendable {
     var cleanupMode: CleanupMode = .off
+    var spelling: SpellingConvention = .asRecognized
     var replacements: ReplacementMatcher = .empty
     var snippets: SnippetTable = .empty
 }
@@ -94,6 +95,29 @@ struct TranscriptPipeline: TranscriptProcessing {
                         cleanupApplied = true
                     }
                 }
+            }
+        }
+
+        // Spelling runs after cleanup (the model can emit either spelling, so the
+        // setting wins) and before replacements (their outputs are the user's
+        // exact text). Only `.text` segments; everything protected stays as is.
+        if settings.spelling != .asRecognized {
+            let normalizer = SpellingNormalizer(convention: settings.spelling)
+            for index in segments.indices {
+                guard case .text(let text) = segments[index] else { continue }
+                // Like `endsSentence` below: the text starts a sentence when it
+                // opens the dictation or follows a break, looking past marks.
+                let previous = segments[..<index].last {
+                    switch $0 {
+                    case .openingMark, .closingMark: false
+                    default: true
+                    }
+                }
+                let startsSentence: Bool = switch previous {
+                case nil, .lineBreak, .paragraphBreak, .bulletItem, .numberedItem: true
+                default: false
+                }
+                segments[index] = .text(normalizer.normalize(text, startsSentence: startsSentence))
             }
         }
 
@@ -173,11 +197,16 @@ struct ReplacementMatcher: Sendable {
 
     var isEmpty: Bool { byFirstWord.isEmpty }
 
-    init(rules: [(trigger: String, output: String)]) {
+    /// `normalizer`: the active spelling convention. Triggers are matched against
+    /// normalized text, so their words are normalized the same way ("colour" keeps
+    /// firing under American); outputs are untouched.
+    init(rules: [(trigger: String, output: String)], normalizer: SpellingNormalizer = .none) {
         var map: [String: [Rule]] = [:]
         var compact: [Character: [CompactRule]] = [:]
         for rule in rules {
-            let words = TriggerWord.words(of: rule.trigger)
+            let words = TriggerWord.words(of: rule.trigger).map {
+                TriggerWord(leading: $0.leading, core: normalizer.normalizedCore($0.core), trailing: $0.trailing)
+            }
             guard let first = words.first else { continue }
             map[first.core, default: []].append(Rule(words: words, output: rule.output))
             let key = SnippetTable.compactKey(of: words)

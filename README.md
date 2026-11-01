@@ -78,6 +78,7 @@ Select text anywhere, hold the **command key** on its own (default Right Command
 - **Live preview** — the floating indicator shows your words as they're recognized, while you're still speaking.
 - **"Scratch that"** — say it as its own utterance to delete your previous dictation (or command-mode rewrite). One level, same app only.
 - **Languages** — Settings → Language lists every locale the on-device recognizer supports; switching may trigger a one-time system model download. Spoken commands (new line, snippet, emoji names) remain English for now; your replacements and snippets work in any language.
+- **Spelling** — Settings → Spelling writes English in the spelling you choose (American, British, British (Oxford), Canadian, Australian) whatever English model you dictate with, so an en_AU speaker can get American text. Off ("As recognized") by default; a fixed on-device word table, no model. Snippets, dictionary output and command-mode rewrites are never re-spelled.
 
 ## Last dictation recovery
 
@@ -146,3 +147,64 @@ Without those, the script still produces a development-signed zip (fine for your
 ## License
 
 [MIT](LICENSE). Provided as-is, no warranty, no support commitment — issues and PRs are welcome but responses aren't guaranteed.
+
+## Third-party notices
+
+The spelling tables (`App/Sources/SpellingTable.generated.swift`) are derived from VarCon (Variant Conversion Info), part of [SCOWL](http://wordlist.aspell.net), by Kevin Atkinson and Benjamin Titze. The source data and its README are vendored under `App/Data/varcon/`; the table is regenerated with `App/scripts/generate-spelling-table.py`. Its license, reproduced from that README as required (also shown in the app's About panel):
+
+```
+Copyright 2000-2019 by Kevin Atkinson
+
+Permission to use, copy, modify, distribute and sell this array, the
+associated software, and its documentation for any purpose is hereby
+granted without fee, provided that the above copyright notice appears
+in all copies and that both that copyright notice and this permission
+notice appear in supporting documentation. Kevin Atkinson makes no
+representations about the suitability of this array for any
+purpose. It is provided "as is" without express or implied warranty.
+
+Copyright 2016 by Benjamin Titze
+
+Permission to use, copy, modify, distribute and sell this array, the
+associated software, and its documentation for any purpose is hereby
+granted without fee, provided that the above copyright notice appears
+in all copies and that both that copyright notice and this permission
+notice appear in supporting documentation. Benjamin Titze makes no
+representations about the suitability of this array for any
+purpose. It is provided "as is" without express or implied warranty.
+
+Since the original words lists come from the Ispell distribution:
+
+Copyright 1993, Geoff Kuenning, Granada Hills, CA
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. All modifications to the source code must be clearly marked as
+   such.  Binary redistributions based on modified source code
+   must be clearly marked as modified versions in the documentation
+   and/or other materials provided with the distribution.
+(clause 4 removed with permission from Geoff Kuenning)
+5. The name of Geoff Kuenning may not be used to endorse or promote
+   products derived from this software without specific prior
+   written permission.
+
+THIS SOFTWARE IS PROVIDED BY GEOFF KUENNING AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL GEOFF KUENNING OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+```

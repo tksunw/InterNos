@@ -167,6 +167,12 @@ If Internos is paused, still starting, or missing a permission, the action says 
 
 What changes with a non-English language: recognition and the scratch phrase are localized; spoken commands (new line, snippet, emoji names) remain English; smart cleanup does not run (text is inserted exactly as recognized).
 
+### Spelling
+
+Each English model writes its own country's spelling: pick en_AU for your accent and you get "colour" and "organise". **Settings → General → Spelling** separates the two choices. Leave it on As recognized (the default) and nothing changes. Pick American, British, British (Oxford), Canadian or Australian and dictated text is rewritten into that spelling, whatever model produced it, using a fixed on-device word table (VarCon, from the SCOWL project). Snippets, personal-dictionary output and command-mode rewrites are never re-spelled.
+
+Two deliberate limits. Words that are a different word in the target spelling are left alone rather than guessed: under a British target, "check", "program", "meter", "story", "tire" and "curb" stay as recognized because each is also a British word (cheque vs check, programme vs computer program). And a capitalized word mid-sentence is treated as a proper noun and kept ("Harbour Bridge", "Centrelink"); a capitalized word at the start of a sentence is converted, so "Labor won" at the start of a sentence becomes "Labour won" under a British target. The setting is English only: with a non-English recognition language it is disabled and dictation is inserted as recognized.
+
 ## Settings reference
 
 ### General
@@ -178,6 +184,7 @@ What changes with a non-English language: recognition and the scratch phrase are
 | Command key | The command mode key. Must differ from the dictation key |
 | Microphone | Which input device to record from |
 | Language | Recognition language |
+| Spelling | Written English spelling: As recognized (default), American, British, British (Oxford), Canadian, Australian. English recognition languages only |
 | Play sounds | Start/success/error sounds |
 | Launch at login | Start Internos when you log in |
 | Check for updates automatically | Off by default. When on, checks GitHub about once a day and offers to download and install new versions in place. Internos also asks once, on second launch, whether to turn this on |

@@ -143,7 +143,13 @@ final class DictationController {
             // The mode as set. `endUtterance` narrows it to what the utterance's
             // own language supports; gating here on the live setting as well could
             // only ever switch cleanup off for a language that does support it.
-            return store.processingSnapshot(cleanupMode: AppSettings.shared.cleanupMode)
+            // Spelling is gated on the live locale here as well, so the matcher's
+            // triggers are normalized only when the text will be. `endUtterance`
+            // re-gates both on the utterance's own locale.
+            let settings = AppSettings.shared
+            return store.processingSnapshot(
+                cleanupMode: settings.cleanupMode,
+                spelling: settings.spellingConvention.effective(forLocaleIdentifier: settings.recognitionLocale))
         }
         self.playSound = playSound ?? { name in
             guard AppSettings.shared.playSounds else { return }
@@ -549,6 +555,7 @@ final class DictationController {
         // translates), so other languages take the deterministic path.
         var settings = processingSettings()
         settings.cleanupMode = settings.cleanupMode.effective(forLocaleIdentifier: localeIdentifier)
+        settings.spelling = settings.spelling.effective(forLocaleIdentifier: localeIdentifier)
         chainInsertion(after: { [pipeline] () -> Result<TranscriptResult, Error> in
             do {
                 let raw = try await task.value

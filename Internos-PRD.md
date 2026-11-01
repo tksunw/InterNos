@@ -223,6 +223,6 @@ This revision (v0.1 → v0.2) folds in a multi-source, adversarially fact-checke
 - **Competitor features surfaced:** Wispr's Smart Formatting (filler removal), Backtrack (self-correction), Command Mode, and auto-learning dictionary — added to stretch/non-goals.
 
 **Resolved by the spike (2026-07-02, see `Spike/FINDINGS.md`):**
-- Custom vocabulary: `AnalysisContext.contextualStrings` exists in the SDK but is empirically inert for `SpeechTranscriber`; `DictationTranscriber` offers a custom-LM content hint but finalizes poorly and is less accurate. v1 uses `SpeechTranscriber` with no recognition-layer vocabulary.
+- Custom vocabulary: `AnalysisContext.contextualStrings` exists in the SDK but is empirically inert for `SpeechTranscriber`; `DictationTranscriber` offers a custom-LM content hint but finalizes poorly and is less accurate. v1 uses `SpeechTranscriber` with no recognition-layer vocabulary. Vocabulary handling therefore stays a post-processing pass; the spelling-convention stage (v2.4, `docs/specs/spelling-convention.md`) is the first such pass.
 - Latency: streaming release→final measured at **0.22 s** on target hardware (file mode 0.37–0.44 s for a ~7 s utterance) — comfortably under the <1 s goal.
 - Asset flow and the 16 kHz-vs-48 kHz format conversion both validated end-to-end.

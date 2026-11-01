@@ -100,6 +100,9 @@ final class CustomizationStore: ObservableObject {
 
     /// Prebuilt match structures, rebuilt only when configuration changes.
     private(set) var matcher: ReplacementMatcher = .empty
+    /// The spelling the matcher's triggers were normalized with; a different
+    /// setting at snapshot time rebuilds it.
+    private var matcherSpelling: SpellingConvention = .asRecognized
     private(set) var snippetTable: SnippetTable = .empty
 
     nonisolated static func defaultFileURL() -> URL {
@@ -187,13 +190,20 @@ final class CustomizationStore: ObservableObject {
     }
 
     private func rebuildMatchStructures() {
-        matcher = ReplacementMatcher(rules: replacements.filter(\.enabled).map { ($0.trigger, $0.replacement) })
+        matcher = ReplacementMatcher(
+            rules: replacements.filter(\.enabled).map { ($0.trigger, $0.replacement) },
+            normalizer: SpellingNormalizer(convention: matcherSpelling))
         snippetTable = SnippetTable(snippets: snippets.filter(\.enabled).map { ($0.id, $0.name, $0.content) })
     }
 
     /// Snapshot for one processing pass.
-    func processingSnapshot(cleanupMode: CleanupMode) -> ProcessingSettings {
-        ProcessingSettings(cleanupMode: cleanupMode, replacements: matcher, snippets: snippetTable)
+    func processingSnapshot(cleanupMode: CleanupMode, spelling: SpellingConvention = .asRecognized) -> ProcessingSettings {
+        if spelling != matcherSpelling {
+            matcherSpelling = spelling
+            rebuildMatchStructures()
+        }
+        return ProcessingSettings(
+            cleanupMode: cleanupMode, spelling: spelling, replacements: matcher, snippets: snippetTable)
     }
 
     // MARK: - normalization & validation

@@ -15,6 +15,9 @@ let cleanupModeKey = "cleanupMode"
 /// What an unset key means, here and in the picker. Off — intentional for 2.0
 /// (decided 2026-07-15), see `AppSettings.cleanupMode`.
 let cleanupModeDefault = CleanupMode.off
+let spellingConventionKey = "spellingConvention"
+/// As recognized: verbatim unless asked, same posture as cleanup.
+let spellingConventionDefault = SpellingConvention.asRecognized
 
 enum ActivationMode: String, CaseIterable, Identifiable {
     case pushToTalk
@@ -87,6 +90,16 @@ final class AppSettings {
     var cleanupMode: CleanupMode {
         get { CleanupMode(rawValue: defaults.string(forKey: cleanupModeKey) ?? "") ?? cleanupModeDefault }
         set { defaults.set(newValue.rawValue, forKey: cleanupModeKey) }
+    }
+
+    /// Written spelling, independent of the recognition language
+    /// (docs/specs/spelling-convention.md). English-only at the point of use.
+    var spellingConvention: SpellingConvention {
+        get {
+            SpellingConvention(rawValue: defaults.string(forKey: spellingConventionKey) ?? "")
+                ?? spellingConventionDefault
+        }
+        set { defaults.set(newValue.rawValue, forKey: spellingConventionKey) }
     }
 
     /// Command-mode key (v2). Command mode is inactive while this equals the

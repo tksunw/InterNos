@@ -38,9 +38,13 @@ private struct GeneralSettingsView: View {
     @State private var devices = AudioDevices.inputDevices()
     @State private var recognitionLocale = AppSettings.shared.recognitionLocale
     @State private var supportedLocales: [(id: String, name: String)] = []
+    // Bound to the stored value so it survives the cached window, like the cleanup picker.
+    @AppStorage(spellingConventionKey) private var spellingConvention = spellingConventionDefault
     @State private var commandHotkey = AppSettings.shared.commandHotkey
 
     var onChange: (() -> Void)?
+
+    private var englishLocale: Bool { recognitionLocale.lowercased().hasPrefix("en") }
 
     var body: some View {
         Form {
@@ -88,10 +92,24 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 .accessibilityLabel("Recognition language")
+                Picker("Spelling", selection: $spellingConvention) {
+                    ForEach(SpellingConvention.allCases) { convention in
+                        Text(convention.label).tag(convention)
+                    }
+                }
+                .disabled(!englishLocale)
+                .accessibilityLabel("Written spelling")
             } footer: {
-                Text("Changing the language may download that language's speech model (a one-time system download). Spoken commands — new line, snippet, emoji names — are English-only for now.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Changing the language may download that language's speech model (a one-time system download). Spoken commands — new line, snippet, emoji names — are English-only for now.")
+                    if englishLocale {
+                        Text("Spelling writes English with the chosen country's spelling, whatever the recognition language's model produced. Personal-dictionary outputs and snippets are never changed.")
+                    } else {
+                        Text("Spelling: English only.")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Section {
                 Toggle("Play sounds", isOn: $playSounds)

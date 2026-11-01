@@ -161,7 +161,12 @@ final class StatusItemController: NSObject, StatusPresenting {
     @objc private func showAbout() {
         // Menu-bar-only app: without activate the panel opens behind the frontmost app.
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(nil)
+        // Third-party notices live in the credits box; VarCon's BSD clause
+        // requires reproducing them with the binary.
+        let credits = NSAttributedString(
+            string: SpellingNormalizer.varconNotice,
+            attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.labelColor])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openSetup() { onOpenSetup?() }

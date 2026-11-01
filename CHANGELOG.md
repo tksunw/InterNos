@@ -6,6 +6,16 @@ All notable changes to Internos are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-10-31
+
+### Fixed
+- Diagnostic log lines now go through the system's unified logging (os.Logger)
+  instead of NSLog, which on macOS 27 no longer reaches `log show`. A bug
+  report can again include the app's log:
+  `log show --predicate 'subsystem == "net.timkennedy.internos"' --last 1h`.
+  The lines carry modes, timings, character counts and error types only, never
+  dictated text; see PRIVACY.md.
+
 ## [2.4.0] - 2026-10-31
 
 ### Added
@@ -405,7 +415,8 @@ Initial release.
 - Menu bar shell, settings (hotkey, activation mode, microphone, sounds),
   permission onboarding, and speech model download UI.
 
-[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/tksunw/InterNos/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/tksunw/InterNos/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/tksunw/InterNos/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/tksunw/InterNos/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/tksunw/InterNos/compare/v2.2.1...v2.3.0
